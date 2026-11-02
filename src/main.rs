@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::services::{ServeDir, ServeFile};
 
+mod browser;
 mod login;
 mod vpn;
 
@@ -146,6 +147,27 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
     }
     if let Some(a) = &after {
         url.push_str(&format!("&after={a}"));
+    }
+
+    // Bevorzugt: der eingeloggte Browser (Chromium). Nur wenn er nicht erreichbar ist, geht es mit dem Cookie weiter.
+    if browser::configured() {
+        match browser::fetch_text(&url).await {
+            Ok(text) => match serde_json::from_str::<Value>(&text) {
+                Ok(value) => {
+                    let (posts, after) = parse_listing(&value);
+                    return Json(FeedResponse { posts, after }).into_response();
+                }
+                Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}")),
+            },
+            Err(browser::BrowserError::NeedsLogin(m)) => {
+                return err(
+                    StatusCode::BAD_GATEWAY,
+                    format!("{m}. Bitte im Browser neu bei Reddit einloggen (https://redswipe-login.kulbarts.com)."),
+                );
+            }
+            Err(browser::BrowserError::Failed(m)) => return err(StatusCode::BAD_GATEWAY, m),
+            Err(browser::BrowserError::Unavailable(_)) => {}
+        }
     }
 
     let cookie = login::load();
