@@ -19,6 +19,9 @@ N_DET = int(os.environ.get("DETECTORS", "2"))
 ORT_THREADS = int(os.environ.get("ORT_THREADS", "3"))
 POSE_ON = os.environ.get("POSE", "1") != "0"
 POSE_MAX = int(os.environ.get("POSE_MAX", "3"))
+HANDS_ON = os.environ.get("HANDS", "1") != "0"
+HANDS_MAX = int(os.environ.get("HANDS_MAX", "4"))
+HANDS_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hand_landmarker.task")
 POSE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_landmarker.task")
 MAX_WIDTH = 640  # Frames vor der Erkennung verkleinern (das Modell rechnet ohnehin mit 320 px)
 BATCH = 8
@@ -81,6 +84,42 @@ class Pose:
             pass
 
 
+class Hands:
+    """MediaPipe Hand Landmarker (21 Punkte pro Hand), gleiche Betriebsarten wie Pose."""
+
+    def __init__(self, video):
+        import mediapipe as mp
+        from mediapipe.tasks import python as mpt
+        from mediapipe.tasks.python import vision
+
+        self.mp = mp
+        self.video = video
+        self.last_ts = -1
+        opts = vision.HandLandmarkerOptions(
+            base_options=mpt.BaseOptions(model_asset_path=HANDS_MODEL),
+            running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
+            num_hands=HANDS_MAX,
+        )
+        self.lm = vision.HandLandmarker.create_from_options(opts)
+
+    def run(self, bgr, t=0.0):
+        rgb = np.ascontiguousarray(bgr[:, :, ::-1])
+        img = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb)
+        if self.video:
+            ts = max(int(t * 1000), self.last_ts + 1)
+            self.last_ts = ts
+            res = self.lm.detect_for_video(img, ts)
+        else:
+            res = self.lm.detect(img)
+        return [[[round(p.x, 3), round(p.y, 3), 1] for p in hand] for hand in res.hand_landmarks]
+
+    def close(self):
+        try:
+            self.lm.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class Req(BaseModel):
     path: str
     kind: str  # "image" | "video"
@@ -125,6 +164,12 @@ def scan_image(det, path):
             out["poses"] = pose.run(img)
         finally:
             pose.close()
+    if HANDS_ON:
+        hands = Hands(False)
+        try:
+            out["hands"] = hands.run(img)
+        finally:
+            hands.close()
     return out
 
 
@@ -158,18 +203,20 @@ def scan_video(det, path):
     names = []
     pose_tl = []  # pro Frame mit Personen: [Zeit, [Person(33 x [x, y, Sichtbarkeit]), ...]]
     pose = Pose(True) if POSE_ON else None
-    pose_ex = ThreadPoolExecutor(1) if pose else None  # läuft parallel zu NudeNet, bleibt in Frame-Reihenfolge
+    hand_tl = []
+    hands = Hands(True) if HANDS_ON else None
+    pose_ex = ThreadPoolExecutor(1) if (pose or hands) else None  # läuft parallel zu NudeNet, bleibt in Frame-Reihenfolge
     total = 0
     batch, idx = [], []
 
     def pose_batch(frames, ids):
-        return [(i / fps, pose.run(f, i / fps)) for f, i in zip(frames, ids)]
+        return [(i / fps, pose.run(f, i / fps) if pose else [], hands.run(f, i / fps) if hands else []) for f, i in zip(frames, ids)]
 
     def flush():
         nonlocal batch, idx
         if not batch:
             return
-        fut = pose_ex.submit(pose_batch, batch, idx) if pose else None
+        fut = pose_ex.submit(pose_batch, batch, idx) if pose_ex else None
         for i, dets in zip(idx, detect_many(det, batch)):
             t = i / fps
             seen = set()
@@ -191,9 +238,11 @@ def scan_video(det, path):
             if row:
                 timeline.append([round(t, 3), row])
         if fut:
-            for t, people in fut.result():
+            for t, people, hs in fut.result():
                 if people:
                     pose_tl.append([round(t, 3), people])
+                if hs:
+                    hand_tl.append([round(t, 3), hs])
         batch, idx = [], []
 
     try:
@@ -211,9 +260,12 @@ def scan_video(det, path):
         proc.stdout.close()
         proc.kill()
         proc.wait()
-        if pose:
+        if pose_ex:
             pose_ex.shutdown(wait=True)
+        if pose:
             pose.close()
+        if hands:
+            hands.close()
     if total == 0:
         raise ValueError("Keine Frames im Video")
     out = []
@@ -227,6 +279,9 @@ def scan_video(det, path):
     if pose:
         res["pose_timeline"] = pose_tl
         res["pose_frames"] = len(pose_tl)
+    if hands:
+        res["hand_timeline"] = hand_tl
+        res["hand_frames"] = len(hand_tl)
     return res
 
 

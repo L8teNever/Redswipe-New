@@ -445,15 +445,25 @@
   const POSE_LINES = [[0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10],[11,12],[11,13],[13,15],[15,17],[15,19],[15,21],[17,19],
     [12,14],[14,16],[16,18],[16,20],[16,22],[18,20],[11,23],[12,24],[23,24],[23,25],[24,26],[25,27],[26,28],[27,29],[28,30],[29,31],
     [30,32],[27,31],[28,32]];
-  function drawPoses(c, people) {
+  const HAND_LINES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+  function drawPoses(c, people, hands) {
     const dpr = window.devicePixelRatio || 1;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     const g = c.getContext('2d');
     g.clearRect(0, 0, w, h);
-    if (!people || !w || !h) return;
+    if (!w || !h) return;
     g.lineCap = 'round';
-    people.forEach((pt) => {
+    (hands || []).forEach((pt) => {
+      g.lineWidth = 2 * dpr; g.strokeStyle = 'rgba(255,200,0,.95)';
+      g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 3 * dpr;
+      HAND_LINES.forEach(([a, b]) => {
+        g.beginPath(); g.moveTo(pt[a][0] * w, pt[a][1] * h); g.lineTo(pt[b][0] * w, pt[b][1] * h); g.stroke();
+      });
+      g.fillStyle = '#fff';
+      pt.forEach((q) => { g.beginPath(); g.arc(q[0] * w, q[1] * h, 2.2 * dpr, 0, Math.PI * 2); g.fill(); });
+    });
+    (people || []).forEach((pt) => {
       const ok = (i) => pt[i] && pt[i][2] >= 0.4;
       g.lineWidth = 2.5 * dpr; g.strokeStyle = 'rgba(61,220,132,.95)';
       g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 3 * dpr;
@@ -479,8 +489,8 @@
     slide.querySelectorAll('.scanbox, .scaninfo').forEach((n) => n.remove());
     const info = el('div', 'scaninfo');
     const dets = r.detections || [];
-    const poses = r.poses || [];
-    if (m.type === 'image' && (dets.length || poses.length)) {
+    const poses = r.poses || [], hands = r.hands || [];
+    if (m.type === 'image' && (dets.length || poses.length || hands.length)) {
       const layer = el('div', 'scanbox');
       dets.forEach((d) => {
         const b = el('div', 'bx' + (isCovered(d.label) ? ' cov' : ''));
@@ -490,9 +500,9 @@
         layer.appendChild(b);
       });
       let pc = null;
-      if (poses.length) { pc = document.createElement('canvas'); pc.className = 'pose'; layer.appendChild(pc); }
+      if (poses.length || hands.length) { pc = document.createElement('canvas'); pc.className = 'pose'; layer.appendChild(pc); }
       slide.appendChild(layer);
-      const refit = () => { fitBox(layer, slide, r.width, r.height); if (pc) drawPoses(pc, poses); };
+      const refit = () => { fitBox(layer, slide, r.width, r.height); if (pc) drawPoses(pc, poses, hands); };
       refit();
       new ResizeObserver(refit).observe(slide);
     }
@@ -520,18 +530,18 @@
   // Video: Boxen frame-genau zum laufenden Bild (Zeitachse vom Scanner, jeder Frame ist geprüft).
   function attachVideoBoxes(slide, r) {
     const v = slide.querySelector('video');
-    const tl = r.timeline || [], ptl = r.pose_timeline || [];
-    if (!v || (!tl.length && !ptl.length)) return;
+    const tl = r.timeline || [], ptl = r.pose_timeline || [], htl = r.hand_timeline || [];
+    if (!v || (!tl.length && !ptl.length && !htl.length)) return;
     const layer = el('div', 'scanbox');
-    const pc = ptl.length ? document.createElement('canvas') : null;
+    const pc = (ptl.length || htl.length) ? document.createElement('canvas') : null;
     if (pc) { pc.className = 'pose'; layer.appendChild(pc); }
     const boxes = el('div');
     Object.assign(boxes.style, { position: 'absolute', inset: '0' });
     layer.appendChild(boxes);
     slide.appendChild(layer);
     const names = r.names || [], tol = 1.5 / (r.fps || 30);
-    let shown = -2, pshown = -2;
-    const refit = () => { fitBox(layer, slide, r.width, r.height); shown = pshown = -2; draw(v.currentTime); };
+    let shown = -2, pshown = -2, hshown = -2;
+    const refit = () => { fitBox(layer, slide, r.width, r.height); shown = pshown = hshown = -2; draw(v.currentTime); };
     const draw = (t) => {
       const i = findFrame(tl, t, tol);
       if (i !== shown) {
@@ -547,8 +557,11 @@
         });
       }
       if (pc) {
-        const j = findFrame(ptl, t, tol);
-        if (j !== pshown) { pshown = j; drawPoses(pc, j >= 0 ? ptl[j][1] : null); }
+        const j = findFrame(ptl, t, tol), k = findFrame(htl, t, tol);
+        if (j !== pshown || k !== hshown) {
+          pshown = j; hshown = k;
+          drawPoses(pc, j >= 0 ? ptl[j][1] : null, k >= 0 ? htl[k][1] : null);
+        }
       }
     };
     new ResizeObserver(refit).observe(slide);
@@ -560,7 +573,7 @@
       else requestAnimationFrame(loop);
     };
     loop();
-    v.addEventListener('seeked', () => { shown = pshown = -2; });
+    v.addEventListener('seeked', () => { shown = pshown = hshown = -2; });
   }
 
   // Ergebnis für ein Medium holen (läuft immer, auch bei ausgeschaltetem Knopf); p = Abstand zum sichtbaren Beitrag.

@@ -7,8 +7,10 @@ WORKDIR /app
 ARG POSE_MODEL=full
 RUN curl -fsSL -o /app/pose_landmarker.task \
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${POSE_MODEL}/float16/latest/pose_landmarker_${POSE_MODEL}.task"
+RUN curl -fsSL -o /app/hand_landmarker.task \
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 COPY app.py .
-ENV ORT_THREADS=3 DETECTORS=2 MIN_SCORE=0.25 POSE_MAX=3 POSE=1
+ENV ORT_THREADS=3 DETECTORS=2 MIN_SCORE=0.25 POSE_MAX=3 POSE=1 HANDS=1 HANDS_MAX=4
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD curl -fsS http://localhost:8000/healthz || exit 1
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
