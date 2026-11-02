@@ -464,7 +464,7 @@
       pt.forEach((q) => { g.beginPath(); g.arc(q[0] * w, q[1] * h, 2.2 * dpr, 0, Math.PI * 2); g.fill(); });
     });
     (people || []).forEach((pt) => {
-      const ok = (i) => pt[i] && pt[i][2] >= 0.4;
+      const ok = (i) => pt[i] && pt[i][2] >= (i <= 10 ? 0.85 : 0.5);
       g.lineWidth = 2.5 * dpr; g.strokeStyle = 'rgba(61,220,132,.95)';
       g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 3 * dpr;
       POSE_LINES.forEach(([a, b]) => {

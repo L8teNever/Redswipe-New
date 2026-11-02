@@ -18,6 +18,7 @@ MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.25"))
 N_DET = int(os.environ.get("DETECTORS", "2"))
 ORT_THREADS = int(os.environ.get("ORT_THREADS", "3"))
 POSE_ON = os.environ.get("POSE", "1") != "0"
+POSE_CONF = float(os.environ.get("POSE_CONF", "0.65"))
 POSE_MAX = int(os.environ.get("POSE_MAX", "3"))
 HANDS_ON = os.environ.get("HANDS", "1") != "0"
 HANDS_MAX = int(os.environ.get("HANDS_MAX", "4"))
@@ -62,6 +63,9 @@ class Pose:
             base_options=mpt.BaseOptions(model_asset_path=POSE_MODEL),
             running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
             num_poses=POSE_MAX,
+            min_pose_detection_confidence=POSE_CONF,
+            min_pose_presence_confidence=POSE_CONF,
+            min_tracking_confidence=POSE_CONF,
         )
         self.lm = vision.PoseLandmarker.create_from_options(opts)
 
@@ -99,6 +103,9 @@ class Hands:
             base_options=mpt.BaseOptions(model_asset_path=HANDS_MODEL),
             running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
             num_hands=HANDS_MAX,
+            min_hand_detection_confidence=POSE_CONF,
+            min_hand_presence_confidence=POSE_CONF,
+            min_tracking_confidence=POSE_CONF,
         )
         self.lm = vision.HandLandmarker.create_from_options(opts)
 
