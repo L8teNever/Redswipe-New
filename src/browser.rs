@@ -223,7 +223,7 @@ async fn run_expression(addr: &str, id: &str, expression: &str) -> Result<Value,
         if s.contains("/login") || s.contains("/account/") {
             return Err(BrowserError::NeedsLogin("Reddit will einen Login".into()));
         }
-        if s.starts_with("https://www.reddit.com") && s.ends_with("|complete") {
+        if s.starts_with("https://") && s.contains("reddit.com") && s.ends_with("|complete") {
             break;
         }
         sleep(Duration::from_millis(300)).await;

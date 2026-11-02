@@ -41,11 +41,11 @@ fn failed(e: browser::BrowserError) -> Response {
     }
 }
 
-async fn run(expr: String) -> Response {
+async fn run(page: &str, expr: String) -> Response {
     if !browser::configured() {
         return err(StatusCode::SERVICE_UNAVAILABLE, "Der Browser ist nicht eingerichtet.");
     }
-    match browser::eval_in_page("https://www.reddit.com/", &expr).await {
+    match browser::eval_in_page(page, &expr).await {
         Ok(v) if v["ok"].as_bool() == Some(true) => Json(json!({ "ok": true })).into_response(),
         Ok(v) => {
             let why = v["error"].as_str().unwrap_or("Reddit hat die Aktion abgelehnt");
@@ -77,7 +77,7 @@ if(!r.ok)return{{ok:false,error:'Reddit antwortet mit HTTP '+r.status}};
 const d=await r.json();const u=d&&d.data&&d.data.updatePostVoteState;
 return u&&u.ok?{{ok:true}}:{{ok:false,error:'Reddit hat den Vote abgelehnt'}}}}catch(e){{return{{ok:false,error:String(e)}}}}}})()"#
     );
-    run(expr).await
+    run("https://www.reddit.com/", expr).await
 }
 
 pub async fn follow(headers: HeaderMap, Json(b): Json<FollowBody>) -> Response {
@@ -89,11 +89,12 @@ pub async fn follow(headers: HeaderMap, Json(b): Json<FollowBody>) -> Response {
     }
     let action = if b.follow { "sub" } else { "unsub" };
     let sr = format!("u_{}", b.user);
+    // Folgen läuft über die alte Schnittstelle: dort braucht Reddit den Modhash von old.reddit.com.
     let expr = format!(
-        r#"(async()=>{{const c={CSRF};if(!c)return{{ok:false,error:'Kein CSRF-Token – im Browser einloggen'}};
-try{{const f=new URLSearchParams();f.append('action',{action:?});f.append('sr_name',{sr:?});f.append('csrf_token',c);
-const r=await fetch('https://www.reddit.com/api/subscribe',{{method:'POST',headers:{{'content-type':'application/x-www-form-urlencoded','x-csrf-token':c}},credentials:'include',body:f.toString()}});
+        r#"(async()=>{{const uh=window.r&&r.config&&r.config.modhash;if(!uh)return{{ok:false,error:'Kein Modhash – im Browser bei Reddit einloggen'}};
+try{{const f=new URLSearchParams();f.append('action',{action:?});f.append('sr_name',{sr:?});f.append('uh',uh);f.append('api_type','json');
+const r=await fetch('/api/subscribe',{{method:'POST',headers:{{'content-type':'application/x-www-form-urlencoded','x-modhash':uh}},credentials:'include',body:f.toString()}});
 if(r.ok)return{{ok:true}};const t=(await r.text()).slice(0,160);return{{ok:false,error:'Reddit antwortet mit HTTP '+r.status+': '+t}}}}catch(e){{return{{ok:false,error:String(e)}}}}}})()"#
     );
-    run(expr).await
+    run("https://old.reddit.com/", expr).await
 }
