@@ -161,7 +161,42 @@ def _in_boxes(pts, boxes, margin):
     return False
 
 
-def limit_by_persons(boxes, poses, hands):
+TORSO_KEYS = ("BREAST", "BELLY", "BUTTOCKS", "GENITALIA", "ANUS")
+
+
+def anchors_from(labels_boxes):
+    """Körperteil-Anker aus NudeNet: (Art, Mitte x, Mitte y) für Rumpf/Füße/Achseln. Eingabe: [(label, (x, y, w, h))]."""
+    out = []
+    for label, (x, y, w, h) in labels_boxes:
+        kind = "torso" if any(k in label for k in TORSO_KEYS) else "feet" if label.startswith("FEET") else "arm" if label.startswith("ARMPITS") else None
+        if kind:
+            out.append((kind, x + w / 2, y + h / 2))
+    return out
+
+
+def pose_support(pose, anchors):
+    """Wie viele NudeNet-Anker passen zum Skelett: Rumpf-Anker liegen im (erweiterten) Rechteck aus
+    Schultern/Hüften, Fuß-Anker nahe den Knöcheln/Füßen, Achsel-Anker nahe den Schultern."""
+
+    def region(ids, m):
+        pts = [pose[i] for i in ids if i < len(pose) and pose[i][2] >= 0.3]
+        if not pts:
+            return None
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        d = max(w, h, 0.05) * m
+        return min(xs) - d, min(ys) - d, max(xs) + d, max(ys) + d
+
+    regs = {"torso": region((11, 12, 23, 24), 0.35), "feet": region((27, 28, 29, 30, 31, 32), 0.6), "arm": region((11, 12), 0.6)}
+    n = 0
+    for kind, cx, cy in anchors:
+        r = regs[kind]
+        if r and r[0] <= cx <= r[2] and r[1] <= cy <= r[3]:
+            n += 1
+    return n
+
+
+def limit_by_persons(boxes, poses, hands, anchors=()):
     """Anzahl Personen (YOLO) begrenzt Pose und Hände: Pose nur in Personen-Boxen und höchstens so viele wie Personen,
     Hände nur in/an Personen-Boxen und höchstens 2 pro Person. Ohne Person bleibt nichts übrig."""
     if boxes is None:
@@ -170,7 +205,8 @@ def limit_by_persons(boxes, poses, hands):
     if n == 0:
         return [], []
     poses = [p for p in poses if _in_boxes(p, boxes, 0.1)]
-    poses.sort(key=lambda p: -sum(q[2] for q in p))
+    # Erst Skelette, die zu NudeNet-Körperteilen (Brust, Bauch, Füße ...) passen, dann nach Sichtbarkeit
+    poses.sort(key=lambda p: (-pose_support(p, anchors), -sum(q[2] for q in p)))
     hands = [h for h in hands if _in_boxes(h, boxes, 0.25)]
     return poses[:n], hands[: 2 * n]
 
@@ -248,7 +284,7 @@ def scan_image(det, path):
             hs = hands.run(img)
         finally:
             hands.close()
-    poses, hs = limit_by_persons(boxes, poses, hs)
+    poses, hs = limit_by_persons(boxes, poses, hs, anchors_from((d["label"], d["box"]) for d in items))
     poses = refine_faces(poses, face_boxes(items))
     if POSE_ON:
         out["poses"] = poses
@@ -301,8 +337,7 @@ def scan_video(det, path):
         out = []
         for k, (f, i) in enumerate(zip(frames, ids)):
             b = boxes[k] if boxes else None
-            ps, hs = limit_by_persons(b, pose.run(f, i / fps) if pose else [], hands.run(f, i / fps) if hands else [])
-            out.append((i / fps, ps, hs, len(b) if b is not None else None))
+            out.append((i / fps, b, pose.run(f, i / fps) if pose else [], hands.run(f, i / fps) if hands else []))
         return out
 
     def flush():
@@ -310,7 +345,7 @@ def scan_video(det, path):
         if not batch:
             return
         fut = pose_ex.submit(pose_batch, batch, idx) if pose_ex else None
-        frame_faces = []
+        frame_faces, frame_anchors = [], []
         for i, dets in zip(idx, detect_many(det, batch)):
             t = i / fps
             seen = set()
@@ -332,8 +367,11 @@ def scan_video(det, path):
             if row:
                 timeline.append([round(t, 3), row])
             frame_faces.append([tuple(r[2:6]) for r in row if names[r[0]].startswith("FACE_")])
+            frame_anchors.append(anchors_from((names[r[0]], tuple(r[2:6])) for r in row))
         if fut:
-            for (t, people, hs, npers), ff in zip(fut.result(), frame_faces):
+            for (t, b, people, hs), ff, fa in zip(fut.result(), frame_faces, frame_anchors):
+                people, hs = limit_by_persons(b, people, hs, fa)
+                npers = len(b) if b is not None else None
                 people = refine_faces(people, ff)
                 if npers:
                     person_frames += 1
