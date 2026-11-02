@@ -96,6 +96,33 @@
     border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
   #scanBtn.on { background: #ff4500; border-color: #ff4500; font-weight: 600; }
   #scanBtn[hidden] { display: none; }
+  #ageBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 118px; z-index: 11; height: 44px; padding: 0 14px;
+    border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
+  #nowBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 196px; z-index: 11; height: 44px; padding: 0 14px;
+    border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
+  #loadBadge { position: fixed; left: 10px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 12; font-size: 11px; line-height: 1.3;
+    padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.65); color: #fff; pointer-events: none; font-variant-numeric: tabular-nums; }
+  #loadBadge[hidden] { display: none; }
+  #loadBadge.busy { background: rgba(255,69,0,.8); }
+  #nowBtn[hidden] { display: none; }
+  #nowBtn:disabled { opacity: .6; }
+  #ageBtn.on { background: #1a7f37; border-color: #1a7f37; font-weight: 600; }
+  #ageBtn[hidden] { display: none; }
+  .post[data-agehide="1"] { display: none; }
+  .post[data-agebad="1"]::after { content: attr(data-agetxt); position: absolute; inset: 0; z-index: 6; pointer-events: none;
+    box-shadow: inset 0 0 0 4px #e5202e, inset 0 0 60px rgba(229,32,46,.55); color: #fff; font-size: 13px; font-weight: 600;
+    padding: calc(64px + env(safe-area-inset-top)) 0 0 0; text-align: center; text-shadow: 0 1px 3px #000; }
+  .scaninfo .chip.agebad { background: rgba(229,32,46,.92); font-weight: 600; }
+  #ageDlg { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.7); padding: 16px; }
+  #ageDlg[hidden] { display: none; }
+  #ageDlg .card { width: 100%; max-width: 380px; background: #181818; border: 1px solid #333; border-radius: 14px; padding: 16px; color: #fff; }
+  #ageDlg h2 { margin: 0 0 8px; font-size: 18px; }
+  #ageDlg p { margin: 8px 0; font-size: 14px; color: #ccc; line-height: 1.4; }
+  #ageDlg label { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 15px; }
+  #ageDlg input[type=number] { width: 80px; font-size: 16px; padding: 8px; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; }
+  #ageDlg .row { display: flex; gap: 8px; margin-top: 14px; }
+  #ageDlg button { font-size: 16px; padding: 9px 12px; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; }
+  #ageDlg button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
   .scanbox { display: none; position: absolute; z-index: 3; pointer-events: none; }
   body.scan-on .scanbox { display: block; }
   .scanbox .bx { position: absolute; border: 2px solid #ff4500; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
@@ -158,7 +185,22 @@
 </div>
 
 <button id="menuBtn" type="button" aria-label="Menü" hidden>☰</button>
+<button id="ageBtn" type="button" title="Beiträge mit zu jungen oder zu alten Personen ausblenden" hidden>Alter</button>
+<button id="nowBtn" type="button" title="Diesen Beitrag jetzt sofort scannen, vor allen anderen" hidden>Scannen</button>
 <button id="scanBtn" type="button" title="NudeNet-Ergebnisse anzeigen (der Scan läuft immer im Hintergrund)" aria-pressed="false" hidden>Anzeigen</button>
+
+<div id="ageDlg" role="dialog" aria-modal="true" aria-labelledby="ageTitle" hidden>
+  <div class="card">
+    <h2 id="ageTitle">Alters-Filter</h2>
+    <p>Welches geschätzte Alter willst du sehen? Beiträge mit Personen außerhalb des Bereichs werden rot markiert (oder ausgeblendet). Die Schätzung ist nur grob (±5–8 Jahre).</p>
+    <label><input id="ageOn" type="checkbox"> Filter aktiv</label>
+    <label>Von <input id="ageMin" type="number" min="0" max="120" inputmode="numeric"> bis <input id="ageMax" type="number" min="0" max="120" inputmode="numeric"> Jahre</label>
+    <label><input id="ageHide" type="checkbox"> Außerhalb ausblenden statt rot anzeigen</label>
+    <div class="row"><button id="ageSave" class="primary" type="button">Speichern</button><button id="ageCancel" type="button">Abbrechen</button></div>
+  </div>
+</div>
+
+<div id="loadBadge" hidden></div>
 
 <div id="vpn" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
   <div class="card">
@@ -171,6 +213,13 @@
     <div class="row">
       <button id="vpnSend" class="primary" type="button" disabled>Hochladen</button>
     </div>
+    <h3>Scan-Geschwindigkeit</h3>
+    <p id="wkState">Status wird geladen …</p>
+    <p>Wie viele Medien gleichzeitig gescannt werden (1–12). Mehr ist schneller, belastet den Server aber stärker.</p>
+    <label>Gleichzeitig <input id="wkN" type="number" min="1" max="12" inputmode="numeric" style="width:70px"></label>
+    <p>Teile pro Video: Ein Video wird in so viele Zeitabschnitte zerlegt, die gleichzeitig gescannt werden. Mehr Teile = ein einzelnes Video wird schneller fertig.</p>
+    <label>Teile pro Video <input id="wkParts" type="number" min="1" max="16" inputmode="numeric" style="width:70px"> (1–16)</label>
+    <div class="row"><button id="wkSave" class="primary" type="button">Übernehmen</button></div>
     <h3>Reddit-Login</h3>
     <p id="rdState">Status wird geladen …</p>
     <p>Reddit gibt anonym keine Beiträge mehr heraus. Füge den Cookie deines Reddit-Accounts ein
@@ -210,6 +259,35 @@
   const timeSel = $('#t');
   const feed = $('#feed');
   const enc = encodeURIComponent;
+
+  // ---- Server-Auslastung (auf jeder Seite) + Anzahl gleichzeitiger Scans ----
+  const loadBadge = $('#loadBadge'), wkN = $('#wkN'), wkState = $('#wkState'), wkParts = $('#wkParts');
+  let wkInit = false;
+  async function loadTick() {
+    try {
+      const r = await fetch('/api/scan/status');
+      const d = await r.json();
+      if (!r.ok || d.off) { loadBadge.hidden = true; return; }
+      const pct = Math.round((d.load / d.cpus) * 100);
+      loadBadge.hidden = false;
+      loadBadge.classList.toggle('busy', d.running > 0 || d.queued > 0);
+      loadBadge.textContent = `Scan ${d.running}/${d.workers} aktiv · ${d.queued} wartend · CPU ${pct}%`;
+      wkState.textContent = `Aktuell ${d.workers} gleichzeitig, ${d.parts || 1} Teile pro Video, ${d.running} laufen, ${d.queued} warten. Server-Last ${d.load.toFixed(2)} bei ${d.cpus} Kernen (${pct}%).`;
+      if (!wkInit || document.activeElement !== wkN) { if (!wkInit) { wkN.value = d.workers; wkParts.value = String(d.parts || 1); } wkInit = true; }
+    } catch { loadBadge.hidden = true; }
+  }
+  loadTick(); setInterval(loadTick, 3000);
+  $('#wkSave').addEventListener('click', async () => {
+    const n = Math.max(1, Math.min(12, parseInt(wkN.value, 10) || 2));
+    wkN.value = n;
+    try {
+      const hd = { 'Content-Type': 'application/json' };
+      await fetch('/api/scan/workers', { method: 'POST', headers: hd, body: JSON.stringify({ n }) });
+      await fetch('/api/scan/parts', { method: 'POST', headers: hd, body: JSON.stringify({ n: Math.max(1, Math.min(16, parseInt(wkParts.value, 10) || 1)) }) });
+      toast(`${n} Medien gleichzeitig, Videos in ${wkParts.value} Teilen`);
+    } catch { toast('Speichern fehlgeschlagen'); }
+    loadTick();
+  });
 
   // ---- VPN-Dialog: Config hochladen (Server prüft Format und Keys) ----
   const vpn = $('#vpn'), vpnState = $('#vpnState'), vpnMsg = $('#vpnMsg');
@@ -433,6 +511,53 @@
       }
   scanBtn.addEventListener('click', () => setScanOn(!scanOn));
 
+  // ---------- Alters-Filter: Beiträge mit zu jungen/alten Personen ausblenden ----------
+  // Das Alter ist nur geschätzt (Fehler ca. ±5-8 Jahre), deshalb zählt jede einzelne Schätzung außerhalb des Bereichs.
+  // Ohne erkanntes Gesicht gibt es keine Schätzung, solche Beiträge bleiben sichtbar.
+  const AGE_KEY = 'redswipe_age';
+  const ageBtn = $('#ageBtn');
+  let ageCfg = { on: false, min: 18, max: 30, hide: false };
+  try { Object.assign(ageCfg, JSON.parse(localStorage.getItem(AGE_KEY) || '{}')); } catch {}
+  const agesOf = (r) => {
+    const out = [];
+    (r.appearance || []).forEach((a) => { if (a && a.age != null) out.push(a.age); });
+    (r.appearance_timeline || []).forEach((f) => (f[1] || []).forEach((a) => { if (a && a.age != null) out.push(a.age); }));
+    return out;
+  };
+  const ageOut = (a) => ageCfg.on && a != null && (a < ageCfg.min || a > ageCfg.max);
+  function applyAgeFilter(sec) {
+    if (!sec) return;
+    const ages = [];
+    sec.querySelectorAll('.slide').forEach((sl) => { if (sl._ages) ages.push(...sl._ages); });
+    const out = ages.filter(ageOut);
+    const bad = ageCfg.on && out.length > 0;
+    delete sec.dataset.agehide; delete sec.dataset.agebad; delete sec.dataset.agetxt;
+    if (!bad) return;
+    if (ageCfg.hide) sec.dataset.agehide = '1';
+    else { sec.dataset.agebad = '1'; sec.dataset.agetxt = `Außerhalb ${ageCfg.min}–${ageCfg.max} (Alter ~${Math.min(...out)}${Math.max(...out) !== Math.min(...out) ? '–' + Math.max(...out) : ''})`; }
+  }
+  function setAge() {
+    try { localStorage.setItem(AGE_KEY, JSON.stringify(ageCfg)); } catch {}
+    ageBtn.classList.toggle('on', ageCfg.on);
+    ageBtn.textContent = ageCfg.on ? `Alter ${ageCfg.min}–${ageCfg.max}` : 'Alter';
+    document.querySelectorAll('.chip[data-age]').forEach((c) => c.classList.toggle('agebad', ageOut(+c.dataset.age)));
+    document.querySelectorAll('.post').forEach(applyAgeFilter);
+  }
+  const ageDlg = $('#ageDlg'), ageOnEl = $('#ageOn'), ageMinEl = $('#ageMin'), ageMaxEl = $('#ageMax'), ageHideEl = $('#ageHide');
+  ageBtn.addEventListener('click', () => {
+    ageOnEl.checked = ageCfg.on; ageMinEl.value = ageCfg.min; ageMaxEl.value = ageCfg.max; ageHideEl.checked = !!ageCfg.hide;
+    ageDlg.hidden = false;
+  });
+  $('#ageCancel').addEventListener('click', () => { ageDlg.hidden = true; });
+  $('#ageSave').addEventListener('click', () => {
+    let mn = parseInt(ageMinEl.value, 10), mx = parseInt(ageMaxEl.value, 10);
+    if (!(mn >= 0)) mn = 18; if (!(mx >= 0)) mx = 99;
+    if (mn > mx) [mn, mx] = [mx, mn];
+    ageCfg = { on: ageOnEl.checked, min: mn, max: mx, hide: ageHideEl.checked };
+    ageDlg.hidden = true; setAge();
+  });
+  setAge();
+
   // Der Rahmen soll genau auf dem sichtbaren Bild liegen (object-fit: contain).
   function fitBox(layer, slide, w, h) {
     const sw = slide.clientWidth, sh = slide.clientHeight;
@@ -534,9 +659,16 @@
   }
 
   function appChip(a, i) {
-      const c = el('span', 'chip pose');
-      const part = (txt, rgb) => { if (!txt) return; const sw = el('i', 'sw'); if (rgb) sw.style.background = `rgb(${rgb.join(',')})`; c.appendChild(sw); c.appendChild(document.createTextNode(txt + ' ')); };
-      if (a) { part(a.hair && 'Haar ' + a.hair, a.hair_rgb); part(a.skin && 'Haut ' + a.skin, a.skin_rgb); }
+      const c = el('span', 'chip pose' + (a && ageOut(a.age) ? ' agebad' : ''));
+      if (a && a.age != null) c.dataset.age = a.age;
+      const part = (txt, rgb) => { if (!txt) return; if (rgb) { const sw = el('i', 'sw'); sw.style.background = `rgb(${rgb.join(',')})`; c.appendChild(sw); } c.appendChild(document.createTextNode(txt + ' ')); };
+      if (a) {
+      part(a.age != null && 'Alter ~' + a.age, null);
+      part(a.hair && 'Haar ' + a.hair, a.hair_rgb);
+      part(a.skin && 'Haut ' + a.skin, a.skin_rgb);
+      if (a.skin_body && a.skin_face && a.skin_body !== a.skin_face) part(`(Gesicht ${a.skin_face}, Körper ${a.skin_body})`, null);
+      else if (a.skin_body && !a.skin_face) part('(nur Körper)', null);
+    }
       return c.childNodes.length ? (c.insertBefore(document.createTextNode(`P${i + 1}: `), c.firstChild), c) : null;
     }
 
@@ -582,6 +714,10 @@
         `${labelName(d.label)} · max ${pct(d.score)} · ${pct(d.share)} der Frames · ${mmss(d.first)}–${mmss(d.last)}`)));
     } else {
       dets.forEach((d) => info.appendChild(el('span', 'chip ' + (isCovered(d.label) ? 'cov' : 'hit'), `${labelName(d.label)} ${pct(d.score)}`)));
+    }
+    if (r.took != null) {
+      const t = r.took >= 60 ? `${Math.floor(r.took / 60)} min ${Math.round(r.took % 60)} s` : `${String(r.took).replace('.', ',')} s`;
+      info.appendChild(el('span', 'chip', `⏱ Scan ${t}` + (m.type === 'video' && r.parts > 1 ? ` (${r.parts} Teile)` : '')));
     }
     slide.appendChild(info);
   }
@@ -675,6 +811,7 @@
         } catch { renderPending(slide, 'Scan nicht abrufbar'); await new Promise((ok) => setTimeout(ok, 5000)); continue; }
         if (r.status === 'done') {
           slide._scanDone = true; renderScan(slide, m, r);
+          slide._ages = agesOf(r); applyAgeFilter(slide.closest('.post'));
           if (m.type === 'video') attachVideoBoxes(slide, r);
           return;
         }
@@ -685,6 +822,30 @@
       }
     } finally { slide._scanBusy = false; }
   }
+
+  // "Scannen": den sichtbaren Beitrag sofort scannen, vor allem anderen; Ergebnisse werden gleich angezeigt.
+  const nowBtn = $('#nowBtn');
+  nowBtn.addEventListener('click', async () => {
+    const sec = [...document.querySelectorAll('.post')].find((x) => x.dataset.visible === '1');
+    if (!sec || !sec._media) return;
+    const slides = [...sec.querySelectorAll('.slide')].filter((sl, i) => {
+      const m = sec._media[i];
+      return m && m.src && (m.type === 'image' || m.type === 'video');
+    });
+    if (!scanOn) setScanOn(true);
+    if (!slides.length) return;
+    nowBtn.disabled = true;
+    try {
+      await Promise.all(slides.map((sl) => {
+        const m = sec._media[[...sec.querySelectorAll('.slide')].indexOf(sl)];
+        sl._scanDone = false; sl._ages = null;
+        renderPending(sl, 'Scan läuft …');
+        return fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}&p=0&now=1`).catch(() => {});
+      }));
+      scanPost(sec, 0);
+      toast('Scan gestartet');
+    } finally { nowBtn.disabled = false; }
+  });
 
   function scanPost(sec, p) {
     if (!sec._media) return;
@@ -1057,6 +1218,8 @@
     topbar.classList.toggle('collapsed', on);
     menuBtn.hidden = !on;
     scanBtn.hidden = !on;
+    ageBtn.hidden = !on;
+    nowBtn.hidden = !on;
   }
   menuBtn.addEventListener('click', () => collapseBar(false));
   setScanOn(scanOn);

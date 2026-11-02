@@ -19,11 +19,14 @@ MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.25"))
 N_DET = int(os.environ.get("DETECTORS", "2"))
 ORT_THREADS = int(os.environ.get("ORT_THREADS", "3"))
 YOLO_ON = os.environ.get("YOLO", "1") != "0"
-YOLO_CONF = float(os.environ.get("YOLO_CONF", "0.35"))
+YOLO_CONF = float(os.environ.get("YOLO_CONF", "0.25"))
+YOLO_IMGSZ = int(os.environ.get("YOLO_IMGSZ", "960"))  # Bilder; Video-Frames bleiben bei 640
+NIP_PREC = int(os.environ.get("NIP_PREC", "2"))  # Brustwarzen-Suche: 1 = schnell, 2 = genau
 YOLO_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.environ.get("YOLO_FILE", "yolo11n.pt"))
 POSE_ON = os.environ.get("POSE", "1") != "0"
 POSE_CONF = float(os.environ.get("POSE_CONF", "0.65"))
-POSE_MAX = int(os.environ.get("POSE_MAX", "3"))
+POSE_MAX = int(os.environ.get("POSE_MAX", "6"))
+POSE_CROP_CONF = float(os.environ.get("POSE_CROP_CONF", "0.35"))
 HANDS_ON = os.environ.get("HANDS", "1") != "0"
 HANDS_MAX = int(os.environ.get("HANDS_MAX", "4"))
 HANDS_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hand_landmarker.task")
@@ -33,6 +36,8 @@ HOLISTIC_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "holis
 COLORS_ON = os.environ.get("COLORS", "1") != "0"
 COLORS_EVERY = int(os.environ.get("COLORS_EVERY", "12"))  # Video: nur jeden n-ten Frame auf Haar-/Hautfarbe prüfen
 PARSE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_parsing.onnx")
+AGE_ON = os.environ.get("AGE", "1") != "0"
+AGE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "genderage.onnx")
 MAX_WIDTH = 640  # Frames vor der Erkennung verkleinern (das Modell rechnet ohnehin mit 320 px)
 BATCH = 8
 ROOT = "/cache"
@@ -60,7 +65,7 @@ class Pose:
     """MediaPipe Pose Landmarker. Für Videos im VIDEO-Modus (verfolgt Personen von Frame zu Frame),
     für Bilder im IMAGE-Modus. Pro Auftrag eine eigene Instanz."""
 
-    def __init__(self, video):
+    def __init__(self, video, conf=None, num=None):
         import mediapipe as mp
         from mediapipe.tasks import python as mpt
         from mediapipe.tasks.python import vision
@@ -68,13 +73,14 @@ class Pose:
         self.mp = mp
         self.video = video
         self.last_ts = -1
+        conf = POSE_CONF if conf is None else conf
         opts = vision.PoseLandmarkerOptions(
             base_options=mpt.BaseOptions(model_asset_path=POSE_MODEL),
             running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
-            num_poses=POSE_MAX,
-            min_pose_detection_confidence=POSE_CONF,
-            min_pose_presence_confidence=POSE_CONF,
-            min_tracking_confidence=POSE_CONF,
+            num_poses=POSE_MAX if num is None else num,
+            min_pose_detection_confidence=conf,
+            min_pose_presence_confidence=conf,
+            min_tracking_confidence=conf,
         )
         self.lm = vision.PoseLandmarker.create_from_options(opts)
 
@@ -188,7 +194,7 @@ _yolo = None
 _yolo_lock = threading.Lock()
 
 
-def yolo_persons(frames):
+def yolo_persons(frames, imgsz=640):
     """YOLO (Ultralytics): Personen-Boxen pro Frame, normalisiert [(x1, y1, x2, y2), ...]. None, wenn YOLO aus ist."""
     global _yolo
     if not YOLO_ON:
@@ -200,7 +206,7 @@ def yolo_persons(frames):
 
             torch.set_num_threads(max(1, ORT_THREADS - 1))
             _yolo = YOLO(YOLO_MODEL)
-        res = _yolo.predict(frames, classes=[0], conf=YOLO_CONF, imgsz=640, verbose=False)
+        res = _yolo.predict(frames, classes=[0], conf=YOLO_CONF, iou=0.6, imgsz=imgsz, verbose=False)
     return [[tuple(float(v) for v in b) for b in r.boxes.xyxyn.tolist()] for r in res]
 
 
@@ -263,6 +269,102 @@ def limit_by_persons(boxes, poses, hands, anchors=()):
     poses.sort(key=lambda p: (-pose_support(p, anchors), -sum(q[2] for q in p)))
     hands = [h for h in hands if _in_boxes(h, boxes, 0.25)]
     return poses[:n], hands[: 2 * n]
+
+
+CROP_PAD = 0.18
+CROP_MIN = 72  # kleinere Ausschnitte (Pixel) bringen nichts
+
+
+def _crop_rect(box, W, H, pad=CROP_PAD):
+    """Pixel-Ausschnitt (x0, y0, x1, y1) um eine normalisierte Personen-Box (x1, y1, x2, y2) mit Rand."""
+    x1, y1, x2, y2 = box
+    dx, dy = (x2 - x1) * pad, (y2 - y1) * pad
+    return (max(0, int((x1 - dx) * W)), max(0, int((y1 - dy) * H)), min(W, int((x2 + dx) * W)), min(H, int((y2 + dy) * H)))
+
+
+def _pose_center(p):
+    pts = [q for q in p if q[2] >= 0.3] or p
+    return sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts)
+
+
+def uncovered_boxes(boxes, poses):
+    """Personen-Boxen (größte zuerst), denen noch kein Skelett zugeordnet ist.
+    Jedes Skelett gehört zur kleinsten Box, die seinen Mittelpunkt enthält."""
+    free = sorted(boxes, key=lambda b: -(b[2] - b[0]) * (b[3] - b[1]))
+    for p in poses:
+        cx, cy = _pose_center(p)
+        hit = [b for b in free if b[0] <= cx <= b[2] and b[1] <= cy <= b[3]]
+        if hit:
+            free.remove(min(hit, key=lambda b: (b[2] - b[0]) * (b[3] - b[1])))
+    return free
+
+
+def crop_poses(pose_crop, bgr, boxes, poses):
+    """Mehrere Personen: Für jede Person ohne Skelett wird die Pose einzeln auf dem Personen-Ausschnitt gesucht
+    (das Modell sieht sonst oft nur die größte Person). Liefert die ergänzten Skelette (Gesamtbild-Koordinaten)."""
+    if pose_crop is None or not boxes or len(boxes) < 2:
+        return poses
+    H, W = bgr.shape[:2]
+    out = list(poses)
+    for box in uncovered_boxes(boxes, out):
+        x0, y0, x1, y1 = _crop_rect(box, W, H)
+        cw, ch = x1 - x0, y1 - y0
+        if cw < CROP_MIN or ch < CROP_MIN:
+            continue
+        found = pose_crop.run(np.ascontiguousarray(bgr[y0:y1, x0:x1]))
+        best, best_s = None, 0.0
+        for p in found:
+            q = [[round((x0 + a * cw) / W, 3), round((y0 + b * ch) / H, 3), c] for a, b, c in p]
+            cx, cy = _pose_center(q)
+            s = sum(v[2] for v in q)
+            if box[0] <= cx <= box[2] and box[1] <= cy <= box[3] and s > best_s:
+                best, best_s = q, s
+        if best is None:
+            continue
+        # Doppelte vermeiden: Skelett mit fast gleicher Mitte wie ein vorhandenes
+        bx, by = _pose_center(best)
+        tol = max(box[2] - box[0], box[3] - box[1]) * 0.12
+        if any(abs(bx - _pose_center(p)[0]) < tol and abs(by - _pose_center(p)[1]) < tol for p in out):
+            continue
+        out.append(best)
+    return out
+
+
+def _iou(a, b):
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    iw = max(0.0, min(ax + aw, bx + bw) - max(ax, bx))
+    ih = max(0.0, min(ay + ah, by + bh) - max(ay, by))
+    inter = iw * ih
+    u = aw * ah + bw * bh - inter
+    return inter / u if u > 0 else 0.0
+
+
+def detect_person_crops(det, bgr, boxes, items, W, H):
+    """Mehrere Personen: NudeNet zusätzlich auf jedem Personen-Ausschnitt. Kleine Körperteile der Nebenpersonen
+    werden so größer und damit erkannt. Neue Treffer (anderes Label oder < 40 % Überlappung) kommen dazu."""
+    if not boxes or len(boxes) < 2:
+        return items
+    out = list(items)
+    for box in boxes:
+        x0, y0, x1, y1 = _crop_rect(box, W, H)
+        cw, ch = x1 - x0, y1 - y0
+        if cw < CROP_MIN or ch < CROP_MIN:
+            continue
+        try:
+            res = det.detect(np.ascontiguousarray(bgr[y0:y1, x0:x1]))
+        except Exception:  # noqa: BLE001
+            continue
+        for d in res:
+            if d["score"] < MIN_SCORE:
+                continue
+            bx, by, bw, bh = d["box"]
+            full = norm({"class": d["class"], "score": d["score"], "box": [bx + x0, by + y0, bw, bh]}, W, H)
+            if any(o["label"] == full["label"] and _iou(o["box"], full["box"]) > 0.4 for o in out):
+                continue
+            out.append(full)
+    out.sort(key=lambda d: -d["score"])
+    return out
 
 
 def face_boxes(items):
@@ -493,7 +595,6 @@ def smooth_poses(tl, fps):
         tl.append([round(fn / fps, 3), frame_dict[fn]])
 
 
-
 # ---------------------------------------------------------------- Haar- und Hautfarbe
 # Ablauf: Gesichtsausschnitt aus den Pose-Gesichtspunkten (0-10) -> BiSeNet Face-Parsing (Haut/Haar-Maske)
 # -> K-Means in Lab -> Haut: ITA-Winkel, Haar: Regeln über HSV.
@@ -530,6 +631,31 @@ def face_crop(bgr, pose):
     pad = max(0, -x0, -y0, x0 + 2 * half - w, y0 + 2 * half - h)
     img = cv2.copyMakeBorder(bgr, pad, pad, pad, pad, cv2.BORDER_REPLICATE) if pad else bgr
     return img[y0 + pad:y0 + pad + 2 * half, x0 + pad:x0 + pad + 2 * half]
+
+
+_age_sess = None
+
+
+def estimate_age(crop):
+    """Geschätztes Alter aus dem Gesichtsausschnitt (InsightFace genderage, 96x96); None ohne Modell.
+    Grobe Schätzung (Fehler ca. +-5-8 Jahre), nur zum Aussortieren gedacht."""
+    global _age_sess
+    import cv2
+
+    if not (AGE_ON and os.path.exists(AGE_MODEL)):
+        return None
+    with _parse_lock:
+        if _age_sess is None:
+            _age_sess = onnxruntime.InferenceSession(AGE_MODEL, providers=["CPUExecutionProvider"])
+    # Der Ausschnitt ist ca. 2,4x so groß wie das Gesicht; das Modell erwartet das Gesicht mit etwas Rand (ca. 1,5x)
+    h, w = crop.shape[:2]
+    m = int(w * 0.18)
+    face = crop[m + int(h * 0.04):h - m + int(h * 0.04), m:w - m]
+    if face.size == 0:
+        return None
+    x = cv2.cvtColor(cv2.resize(face, (96, 96), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB).astype(np.float32)
+    out = _age_sess.run(None, {_age_sess.get_inputs()[0].name: x.transpose(2, 0, 1)[None]})[0][0]
+    return int(round(float(out[2]) * 100))
 
 
 def parse_face(crop):
@@ -598,44 +724,119 @@ def hair_class(rgb):
     return "blond" if s < 0.75 else "rot"
 
 
-def person_colors(bgr, pose):
-    """Haar- und Hautfarbe einer Person; fehlende Teile bleiben None."""
+def _skin_lab(px):
+    """Typische Hautfarbe (Lab, 8 Bit) aus Hautpixeln: dominante Cluster, dunkle Schattencluster ignoriert."""
+    cl = _dominant_lab(px)
+    top = cl[0][0][0]
+    keep = [(c, wgt) for c, wgt in cl if c[0] >= top - 255 * 0.15]
+    tw = sum(wgt for _, wgt in keep)
+    return sum(c * wgt for c, wgt in keep) / tw
+
+
+# Gliedmaßen (Pose-Punkte) und Rumpf, aus denen Körperhaut gesammelt wird
+LIMBS = ((11, 13), (13, 15), (12, 14), (14, 16), (23, 25), (25, 27), (24, 26), (26, 28))
+TORSO = (11, 12, 24, 23)
+
+
+def body_mask(shape, pose, items):
+    """Maske der Körperregionen (Rumpf, Arme, Beine, freiliegende NudeNet-Teile) im Frame."""
     import cv2
 
-    crop = face_crop(bgr, pose)
-    if crop is None:
+    h, w = shape[:2]
+    m = np.zeros((h, w), np.uint8)
+    pt = lambda i: (int(pose[i][0] * w), int(pose[i][1] * h))  # noqa: E731
+    ok = lambda i: pose[i][2] >= 0.4  # noqa: E731
+    sw = np.hypot(*(np.subtract(pt(11), pt(12)))) if ok(11) and ok(12) else 0
+    th = max(3, int(sw * 0.2))
+    for a, b in LIMBS:
+        if ok(a) and ok(b):
+            cv2.line(m, pt(a), pt(b), 1, th)
+    if all(ok(i) for i in TORSO):
+        quad = np.array([pt(i) for i in TORSO], np.float32)
+        c = quad.mean(0)
+        cv2.fillPoly(m, [((quad - c) * 0.8 + c).astype(np.int32)], 1)  # Rand (Arme, Kleidung) weglassen
+    for d in items or []:
+        lab = str(d["label"])
+        if "EXPOSED" in lab and not lab.startswith("FACE"):
+            x, y, bw, bh = d["box"]
+            x0, y0, x1, y1 = int((x + bw * .1) * w), int((y + bh * .1) * h), int((x + bw * .9) * w), int((y + bh * .9) * h)
+            m[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = 1
+    return m
+
+
+def body_skin(bgr, pose, items, ref):
+    """Hautpixel vom ganzen Körper: nur Pixel, die hautfarben sind (YCrCb) und zur Gesichtsfarbe passen.
+    Kleidung fliegt so raus. Liefert (Lab 8 Bit, Pixelzahl) oder None."""
+    import cv2
+
+    m = body_mask(bgr.shape, pose, items)
+    if m.sum() < 150:
         return None
-    seg, rgb = parse_face(crop)
-    lab_img = cv2.cvtColor(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), cv2.COLOR_BGR2LAB)
-    ker = np.ones((5, 5), np.uint8)
-    res = {"hair": None, "skin": None, "hair_rgb": None, "skin_rgb": None}
-    skin = cv2.erode(np.isin(seg, SKIN_IDS + (NOSE_ID,)).astype(np.uint8), ker)
-    px = lab_img[skin > 0].astype(np.float32)
-    px = px[(px[:, 0] > 255 * 0.12) & (px[:, 0] < 255 * 0.97)]  # tiefe Schatten und Glanzlichter raus
-    if len(px) >= 80:
-        cl = _dominant_lab(px)
-        top = cl[0][0][0]
-        keep = [(c, wgt) for c, wgt in cl if c[0] >= top - 255 * 0.15]  # dunkle Schattencluster ignorieren
-        tw = sum(wgt for _, wgt in keep)
-        c = sum(c * wgt for c, wgt in keep) / tw
+    ycc = cv2.cvtColor(bgr, cv2.COLOR_BGR2YCrCb)
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    cr, cb = ycc[..., 1], ycc[..., 2]
+    ok = (m > 0) & (cr >= 133) & (cr <= 180) & (cb >= 77) & (cb <= 135) & (lab[..., 0] > 255 * 0.12) & (lab[..., 0] < 255 * 0.97)
+    px = lab[ok].astype(np.float32)
+    if ref is not None and len(px):
+        d = np.sqrt(((px[:, 0] - ref[0]) * 100 / 255) ** 2 + (px[:, 1] - ref[1]) ** 2 + (px[:, 2] - ref[2]) ** 2)
+        px = px[d < 30]
+    if len(px) < 150:
+        return None
+    return _skin_lab(px), len(px)
+
+
+def person_colors(bgr, pose, items=None):
+    """Haar- und Hautfarbe einer Person (Gesicht + ganzer Körper); fehlende Teile bleiben None."""
+    import cv2
+
+    res = {"hair": None, "skin": None, "hair_rgb": None, "skin_rgb": None, "skin_face": None, "skin_body": None, "body_rgb": None, "age": None}
+    face_lab, face_n = None, 0
+    crop = face_crop(bgr, pose)
+    if crop is not None:
+        try:
+            res["age"] = estimate_age(crop)
+        except Exception:  # noqa: BLE001
+            pass
+        seg, rgb = parse_face(crop)
+        lab_img = cv2.cvtColor(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), cv2.COLOR_BGR2LAB)
+        ker = np.ones((5, 5), np.uint8)
+        skin = cv2.erode(np.isin(seg, SKIN_IDS + (NOSE_ID,)).astype(np.uint8), ker)
+        px = lab_img[skin > 0].astype(np.float32)
+        px = px[(px[:, 0] > 255 * 0.12) & (px[:, 0] < 255 * 0.97)]  # tiefe Schatten und Glanzlichter raus
+        if len(px) >= 80:
+            face_lab, face_n = _skin_lab(px), len(px)
+            res["skin_face"] = skin_class(face_lab[0] * 100 / 255, face_lab[2] - 128)
+        hair = cv2.erode((seg == HAIR_ID).astype(np.uint8), ker)
+        if hair.sum() >= 0.015 * seg.size:
+            cl = _dominant_lab(lab_img[hair > 0].astype(np.float32))
+            rgbc = _lab_to_rgb(cl[0][0])
+            res["hair"] = hair_class(rgbc)
+            res["hair_rgb"] = rgbc
+    body = body_skin(bgr, pose, items, face_lab)
+    if body:
+        res["skin_body"] = skin_class(body[0][0] * 100 / 255, body[0][2] - 128)
+        res["body_rgb"] = _lab_to_rgb(body[0])
+    # Gesamtwert: Gesicht und Körper nach Pixelzahl gewichtet (Gesicht zählt höchstens so viel wie der Körper)
+    if face_lab is not None or body:
+        parts = []
+        if face_lab is not None:
+            parts.append((face_lab, min(face_n, body[1]) if body else face_n))
+        if body:
+            parts.append((body[0], body[1]))
+        tw = sum(w for _, w in parts)
+        c = sum(l * w for l, w in parts) / tw
         res["skin"] = skin_class(c[0] * 100 / 255, c[2] - 128)
         res["skin_rgb"] = _lab_to_rgb(c)
-    hair = cv2.erode((seg == HAIR_ID).astype(np.uint8), ker)
-    if hair.sum() >= 0.015 * seg.size:
-        cl = _dominant_lab(lab_img[hair > 0].astype(np.float32))
-        rgbc = _lab_to_rgb(cl[0][0])
-        res["hair"] = hair_class(rgbc)
-        res["hair_rgb"] = rgbc
-    return res
+    return res if any(v for v in res.values()) else None
 
 
-def colors_for(bgr, poses):
+def colors_for(bgr, poses, items=None):
     if not (COLORS_ON and poses and os.path.exists(PARSE_MODEL)):
         return None
     out = []
     for p in poses:
         try:
-            out.append(person_colors(bgr, p))
+            out.append(person_colors(bgr, p, items))
         except Exception:  # noqa: BLE001
             out.append(None)
     return out
@@ -648,11 +849,77 @@ class ScanCancelled(Exception):
 class Req(BaseModel):
     path: str
     kind: str  # "image" | "video"
+    parts: int = 1  # Video: in so viele Zeitabschnitte teilen und parallel scannen
 
 
 @app.get("/healthz")
 def healthz():
     return "ok"
+
+
+NIP_LABELS = ("FEMALE_BREAST_EXPOSED", "MALE_BREAST_EXPOSED")
+
+
+def find_nipple(bgr, box):
+    """Brustwarze/Areola in einer Brust-Box (x, y, w, h normiert) per Farbanalyse. Liefert (x, y, conf) normiert oder None."""
+    import cv2
+
+    H, W = bgr.shape[:2]
+    x0, y0 = max(0, int(box[0] * W)), max(0, int(box[1] * H))
+    x1, y1 = min(W, int((box[0] + box[2]) * W)), min(H, int((box[1] + box[3]) * H))
+    bw, bh = x1 - x0, y1 - y0
+    if bw < 24 or bh < 24:
+        return None
+    s = (256.0 if NIP_PREC >= 2 else 160.0) / max(bw, bh)  # auf feste Größe skalieren: schnell und größenunabhängig
+    crop = cv2.resize(bgr[y0:y1, x0:x1], (max(8, int(bw * s)), max(8, int(bh * s))), interpolation=cv2.INTER_AREA)
+    ch, cw = crop.shape[:2]
+    m = float(max(cw, ch))
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+    ycc = cv2.cvtColor(crop, cv2.COLOR_BGR2YCrCb)
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    skin = (ycc[..., 1] >= 130) & (ycc[..., 1] <= 185) & (ycc[..., 2] >= 70) & (ycc[..., 2] <= 140) & (hsv[..., 1] < 215)
+    if skin.sum() < 0.2 * skin.size:
+        return None
+    L, A, B = lab[..., 0], lab[..., 1], lab[..., 2]
+    med = lambda c: float(np.median(c[skin]))
+    # Areola/Warze: röter (a*) und dunkler als die Haut ringsum
+    sc = (A - med(A)) * 1.0 + (med(L) - L) * 0.35 + (B - med(B)) * 0.2
+    sc[~skin] = -50
+    raw = sc.copy()
+    sc = cv2.GaussianBlur(sc, (0, 0), max(2.0, 0.06 * m))
+    # Scheiben-Suche (Differenz zweier Unschärfen): findet runde Flecken statt Kanten und Schatten.
+    # Nicht-Haut zählt neutral (0), damit Ränder keine Scheiben vortäuschen.
+    rel = np.where(skin, raw - float(np.median(raw[skin])), 0.0).astype(np.float32)
+    fracs = (0.045, 0.07, 0.10) if NIP_PREC >= 2 else (0.07,)
+    blob = None
+    for f in fracs:
+        sg = max(1.5, f * m)
+        d = cv2.GaussianBlur(rel, (0, 0), sg) - cv2.GaussianBlur(rel, (0, 0), sg * 2.2)
+        blob = d if blob is None else np.maximum(blob, d)
+    skinf = cv2.GaussianBlur(skin.astype(np.float32), (0, 0), max(2.0, 0.05 * m))
+    yy, xx = np.mgrid[0:ch, 0:cw]
+    # Die Brustwarze liegt meist ziemlich genau in der Mitte der Brust-Box
+    prior = np.exp(-(((xx - cw / 2) / (0.30 * cw)) ** 2 + ((yy - ch * 0.5) / (0.30 * ch)) ** 2))
+    edge = np.ones_like(sc)
+    mx, my = int(cw * 0.10), int(ch * 0.10)
+    edge[:my] = 0; edge[-my:] = 0; edge[:, :mx] = 0; edge[:, -mx:] = 0
+    r = np.clip(blob, 0, None) * prior * edge * skinf
+    if r.max() <= 0:
+        r = (sc - sc[skin].mean()) * prior * edge
+    iy, ix = np.unravel_index(np.argmax(r), r.shape)
+    # Feinsuche: im Umkreis der Areola mit kleiner Unschärfe das gewichtete Zentrum der stärksten Pixel nehmen
+    fine = cv2.GaussianBlur(raw, (0, 0), max(1.2, 0.02 * m))
+    rad = int((0.09 if NIP_PREC >= 2 else 0.12) * m)
+    ya, yb, xa, xb = max(0, iy - rad), min(ch, iy + rad + 1), max(0, ix - rad), min(cw, ix + rad + 1)
+    win = fine[ya:yb, xa:xb].copy()
+    win[~skin[ya:yb, xa:xb]] = -50
+    wmax = win.max()
+    wt = np.clip(win - (wmax - 0.35 * (wmax - np.median(win))), 0, None) ** 2
+    if wt.sum() > 0:
+        gy, gx = np.mgrid[ya:yb, xa:xb]
+        iy, ix = int(round((wt * gy).sum() / wt.sum())), int(round((wt * gx).sum() / wt.sum()))
+    conf = float(np.clip((sc[iy, ix] - sc[skin].mean()) / 12.0, 0.2, 0.95))
+    return ((x0 + (ix + .5) / s) / W, (y0 + (iy + .5) / s) / H, conf)
 
 
 def norm(det, w, h):
@@ -682,8 +949,14 @@ def scan_image(det, path):
     res = det.detect(img)
     items = [norm(d, w, h) for d in res if d["score"] >= MIN_SCORE]
     items.sort(key=lambda d: -d["score"])
+    boxes = (yolo_persons([img], YOLO_IMGSZ) or [None])[0]
+    items = detect_person_crops(det, img, boxes, items, w, h)
+    for d in items:
+        if d["label"] in NIP_LABELS:
+            nn = find_nipple(img, d["box"])
+            if nn:
+                d["nip"] = [round(nn[0], 4), round(nn[1], 4), round(nn[2], 2)]
     out = {"kind": "image", "width": w, "height": h, "detections": items}
-    boxes = (yolo_persons([img]) or [None])[0]
     poses, hs = [], []
     if HOLISTIC_ON:
         hol = Holistic(False)
@@ -694,10 +967,14 @@ def scan_image(det, path):
     else:
         if POSE_ON:
             pose = Pose(False)
+            pose_crop = Pose(False, conf=POSE_CROP_CONF, num=1) if boxes and len(boxes) > 1 else None
             try:
                 poses = pose.run(img)
+                poses = crop_poses(pose_crop, img, boxes, limit_by_persons(boxes, poses, [])[0])
             finally:
                 pose.close()
+                if pose_crop:
+                    pose_crop.close()
         if HANDS_ON:
             hands = Hands(False)
             try:
@@ -712,7 +989,7 @@ def scan_image(det, path):
         out["hands"] = hs
     if boxes is not None:
         out["persons"] = len(boxes)
-    cols = colors_for(img, poses)
+    cols = colors_for(img, poses, items)
     if cols is not None:
         out["appearance"] = cols
     return out
@@ -731,18 +1008,18 @@ def probe(path):
     return int(s["width"]), int(s["height"]), fps or 30.0, float((j.get("format") or {}).get("duration") or 0)
 
 
-def scan_video(det, path, cancel=None):
-    w, h, fps, duration = probe(path)
-    if w > MAX_WIDTH:
-        h = int(h * MAX_WIDTH / w) // 2 * 2
-        w = MAX_WIDTH
-    w, h = max(2, w // 2 * 2), max(2, h // 2 * 2)
+def _video_part(det, path, cancel, w, h, fps, start=0, count=None):
+    """Ein Abschnitt des Videos (ab Frame `start`, `count` Frames; None = bis zum Ende). Liefert die Rohdaten."""
     size = w * h * 3
+    cmd = ["ffmpeg", "-v", "error"]
+    if start > 0:
+        cmd += ["-ss", f"{start / fps:.4f}"]
+    cmd += ["-i", path, "-an"]
+    if count:
+        cmd += ["-frames:v", str(count)]
     # Kein fps-Filter: wirklich jeder Frame wird geprüft.
-    proc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-i", path, "-an", "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
-        stdout=subprocess.PIPE,
-    )
+    cmd += ["-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     labels = {}
     timeline = []  # pro Frame mit Treffern: [Zeit, [[Label-Nr, Score, x, y, b, h], ...]]
     names = []
@@ -778,7 +1055,7 @@ def scan_video(det, path, cancel=None):
             return
         fut = pose_ex.submit(pose_batch, batch, idx) if pose_ex else None
         frame_items = []
-        for i, dets in zip(idx, detect_many(det, batch)):
+        for i, fr0, dets in zip(idx, batch, detect_many(det, batch)):
             t = i / fps
             seen = set()
             row = []
@@ -788,7 +1065,12 @@ def scan_video(det, path, cancel=None):
                 n = norm(d, w, h)
                 if n["label"] not in names:
                     names.append(n["label"])
-                row.append([names.index(n["label"]), n["score"]] + [round(v, 3) for v in n["box"]])
+                r_ = [names.index(n["label"]), n["score"]] + [round(v, 3) for v in n["box"]]
+                if n["label"] in NIP_LABELS:
+                    nn = find_nipple(fr0, n["box"])
+                    if nn:
+                        r_ += [round(nn[0], 4), round(nn[1], 4), round(nn[2], 2)]
+                row.append(r_)
                 e = labels.setdefault(n["label"], {"label": n["label"], "max": 0.0, "frames": 0, "first": t, "last": t, "box": n["box"], "at": t})
                 if n["score"] > e["max"]:
                     e["max"], e["box"], e["at"] = n["score"], n["box"], t
@@ -813,7 +1095,7 @@ def scan_video(det, path, cancel=None):
                 if people:
                     pose_tl.append([round(t, 3), people])
                     if COLORS_ON and ix % COLORS_EVERY == 0:
-                        cols = colors_for(fr, people)
+                        cols = colors_for(fr, people, fi)
                         if cols and any(cols):
                             color_tl.append([round(t, 3), cols])
                 if hs:
@@ -828,7 +1110,7 @@ def scan_video(det, path, cancel=None):
             if len(buf) < size:
                 break
             batch.append(np.frombuffer(buf, np.uint8).reshape(h, w, 3).copy())
-            idx.append(total)
+            idx.append(start + total)
             total += 1
             if len(batch) >= BATCH:
                 flush()
@@ -845,6 +1127,107 @@ def scan_video(det, path, cancel=None):
             pose.close()
         if hands:
             hands.close()
+    return {"labels": labels, "timeline": timeline, "names": names, "pose_tl": pose_tl, "hand_tl": hand_tl,
+            "color_tl": color_tl, "person_tl": person_tl, "person_max": person_max, "person_frames": person_frames,
+            "total": total, "hol": bool(hol), "pose": bool(pose), "hands": bool(hands)}
+
+
+class _AnyStop:
+    """Abbruch, sobald der Auftrag abgebrochen wird oder ein anderer Abschnitt fehlschlägt."""
+
+    def __init__(self, cancel, own):
+        self.cancel, self.own = cancel, own
+
+    def is_set(self):
+        return self.own.is_set() or (self.cancel is not None and self.cancel.is_set())
+
+
+def _merge_parts(states):
+    names, labels = [], {}
+    timeline, pose_tl, hand_tl, color_tl, person_tl = [], [], [], [], []
+    person_max = person_frames = total = 0
+    for st in states:
+        remap = []
+        for n in st["names"]:
+            if n not in names:
+                names.append(n)
+            remap.append(names.index(n))
+        for t, row in st["timeline"]:
+            timeline.append([t, [[remap[r[0]]] + r[1:] for r in row]])
+        for lab, e in st["labels"].items():
+            m = labels.get(lab)
+            if m is None:
+                labels[lab] = dict(e)
+                continue
+            if e["max"] > m["max"]:
+                m["max"], m["box"], m["at"] = e["max"], e["box"], e["at"]
+            m["frames"] += e["frames"]
+            m["first"], m["last"] = min(m["first"], e["first"]), max(m["last"], e["last"])
+        pose_tl += st["pose_tl"]
+        hand_tl += st["hand_tl"]
+        color_tl += st["color_tl"]
+        for t, n in st["person_tl"]:
+            if not person_tl or person_tl[-1][1] != n:
+                person_tl.append([t, n])
+        person_max = max(person_max, st["person_max"])
+        person_frames += st["person_frames"]
+        total += st["total"]
+    return {"labels": labels, "timeline": timeline, "names": names, "pose_tl": pose_tl, "hand_tl": hand_tl,
+            "color_tl": color_tl, "person_tl": person_tl, "person_max": person_max, "person_frames": person_frames,
+            "total": total, "hol": any(x["hol"] for x in states), "pose": any(x["pose"] for x in states),
+            "hands": any(x["hands"] for x in states)}
+
+
+def scan_video(det, path, cancel=None, parts=1):
+    w, h, fps, duration = probe(path)
+    if w > MAX_WIDTH:
+        h = int(h * MAX_WIDTH / w) // 2 * 2
+        w = MAX_WIDTH
+    w, h = max(2, w // 2 * 2), max(2, h // 2 * 2)
+    est = int(round(duration * fps)) if duration else 0
+    parts = max(1, min(int(parts or 1), 16, est // (BATCH * 6) if est else 1))
+    if parts <= 1:
+        states = [_video_part(det, path, cancel, w, h, fps)]
+    else:
+        # Extra-Detektoren: erst aus dem Pool, sonst neu laden (werden danach verworfen).
+        dets, fromp = [det], []
+        for _ in range(parts - 1):
+            try:
+                d = pool.get_nowait()
+                fromp.append(d)
+            except queue.Empty:
+                d = NudeDetector()
+            dets.append(d)
+        edges = [round(i * est / parts) for i in range(parts + 1)]
+        own = threading.Event()
+        errs = []
+        stop = _AnyStop(cancel, own)
+
+        def job(i):
+            try:
+                cnt = None if i == parts - 1 else edges[i + 1] - edges[i]
+                return _video_part(dets[i], path, stop, w, h, fps, edges[i], cnt)
+            except BaseException as e:
+                if not isinstance(e, ScanCancelled):
+                    errs.append(e)
+                own.set()
+                raise
+
+        try:
+            with ThreadPoolExecutor(parts) as ex:
+                states = list(ex.map(job, range(parts)))
+        except ScanCancelled:
+            if errs:
+                raise errs[0]
+            raise
+        finally:
+            for d in fromp:
+                pool.put(d)
+    st = _merge_parts(states)
+    labels, timeline, names, pose_tl, hand_tl, color_tl, person_tl = (
+        st["labels"], st["timeline"], st["names"], st["pose_tl"], st["hand_tl"], st["color_tl"], st["person_tl"])
+    total, person_max, person_frames = st["total"], st["person_max"], st["person_frames"]
+    hol, pose, hands = st["hol"], st["pose"], st["hands"]
     if total == 0:
         raise ValueError("Keine Frames im Video")
     out = []
@@ -877,7 +1260,7 @@ def work(req: Req, cancel=None):
         raise HTTPException(400, "Pfad nicht erlaubt")
     det = pool.get()
     try:
-        return scan_image(det, path) if req.kind == "image" else scan_video(det, path, cancel)
+        return scan_image(det, path) if req.kind == "image" else scan_video(det, path, cancel, req.parts)
     except HTTPException:
         raise
     except ScanCancelled:

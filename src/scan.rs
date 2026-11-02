@@ -4,7 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     env,
     hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, OnceLock},
@@ -66,15 +66,57 @@ fn queue() -> &'static Queue {
 static SEQ: AtomicU64 = AtomicU64::new(0);
 const IDLE: u32 = 1000;
 
-/// Die Arbeiter starten beim ersten Auftrag (SCAN_JOBS Stück, Standard 2).
+const MAX_WORKERS: usize = 12;
+static PARTS: AtomicUsize = AtomicUsize::new(0);
+
+fn parts_file() -> std::path::PathBuf {
+    optimize::cache_dir().join("scan_parts.txt")
+}
+
+/// In wie viele Zeitabschnitte ein Video geteilt und parallel gescannt wird (1-16, Standard 1).
+fn parts() -> usize {
+    let v = PARTS.load(Ordering::Relaxed);
+    if v > 0 {
+        return v;
+    }
+    let n = std::fs::read_to_string(parts_file()).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(1usize).clamp(1, 16);
+    PARTS.store(n, Ordering::Relaxed);
+    n
+}
+static LIMIT: AtomicUsize = AtomicUsize::new(0);
+
+fn limit_file() -> std::path::PathBuf {
+    optimize::cache_dir().join("scan_workers.txt")
+}
+
+/// Wie viele Medien gleichzeitig gescannt werden (1-12): gespeicherter Wert, sonst SCAN_JOBS, sonst 2.
+fn limit() -> usize {
+    let v = LIMIT.load(Ordering::Relaxed);
+    if v > 0 {
+        return v;
+    }
+    let n = std::fs::read_to_string(limit_file())
+        .ok()
+        .and_then(|t| t.trim().parse().ok())
+        .or_else(|| env::var("SCAN_JOBS").ok().and_then(|v| v.parse().ok()))
+        .unwrap_or(2usize)
+        .clamp(1, MAX_WORKERS);
+    LIMIT.store(n, Ordering::Relaxed);
+    n
+}
+
+/// Alle Arbeiter laufen von Anfang an; Nummer >= Limit pausiert, so wirkt eine Änderung sofort.
 fn start_workers(st: &AppState) {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
-        let n: usize = env::var("SCAN_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
-        for _ in 0..n.max(1) {
+        for idx in 0..MAX_WORKERS {
             let st = st.clone();
             tokio::spawn(async move {
                 loop {
+                    if idx >= limit() {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
                     let job = {
                         let mut jobs = queue().jobs.lock().await;
                         let best = jobs.iter().enumerate().min_by_key(|(_, j)| (j.prio, j.seq)).map(|(i, _)| i);
@@ -98,7 +140,7 @@ fn key(kind: &str, url: &str) -> String {
     let mut a = DefaultHasher::new();
     ("scan", kind, url).hash(&mut a);
     let mut b = DefaultHasher::new();
-    (url, kind, "scan", 14u8).hash(&mut b);
+    (url, kind, "scan", 18u8).hash(&mut b);
     format!("{:016x}{:016x}", a.finish(), b.finish())
 }
 
@@ -152,6 +194,34 @@ fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32) {
     });
 }
 
+/// "Jetzt scannen": Auftrag ganz nach vorn und zusätzlich ein eigener Arbeiter, der sofort startet,
+/// auch wenn die normalen Arbeiter gerade mit anderen Medien beschäftigt sind.
+fn rush(st: AppState, kind: &'static str, raw: String) {
+    let k = key(kind, &raw);
+    tokio::spawn(async move {
+        {
+            let jobs = queue().jobs.lock().await;
+            // Läuft schon (ggf. mit niedriger Priorität): nichts doppelt starten.
+            if inflight().lock().await.contains(&k) && !jobs.iter().any(|j| j.k == k) {
+                return;
+            }
+        }
+        // Altes Ergebnis verwerfen: es wird komplett neu gescannt.
+        let _ = tokio::fs::remove_file(result_path(&k)).await;
+        enqueue(st.clone(), kind, raw, 0);
+        // Kurz warten, bis der Auftrag in der Warteschlange liegt, dann einen Sonder-Arbeiter starten.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let job = {
+            let mut jobs = queue().jobs.lock().await;
+            let Some(i) = jobs.iter().position(|j| j.k == k) else { return };
+            let job = jobs.remove(i);
+            inflight().lock().await.insert(job.k.clone());
+            job
+        };
+        work(&st, job).await;
+    });
+}
+
 async fn work(st: &AppState, job: Job) {
     let Job { k, kind, raw, prio, .. } = job;
     let cancel = Arc::new(Notify::new());
@@ -195,6 +265,7 @@ enum Fail {
 }
 
 async fn run(st: &AppState, kind: &str, url: &Url, k: &str) -> Result<Value, Fail> {
+    let t0 = std::time::Instant::now();
     let base = scanner().ok_or_else(|| Fail::Retry("NSFW_URL nicht gesetzt".into()))?;
     let dir = optimize::cache_dir();
     tokio::fs::create_dir_all(&dir).await.map_err(|e| Fail::Retry(e.to_string()))?;
@@ -207,7 +278,7 @@ async fn run(st: &AppState, kind: &str, url: &Url, k: &str) -> Result<Value, Fai
         .client
         .post(format!("{base}/scan"))
         .timeout(Duration::from_secs(timeout))
-        .json(&json!({ "path": tmp.to_string_lossy(), "kind": kind }))
+        .json(&json!({ "path": tmp.to_string_lossy(), "kind": kind, "parts": if kind == "video" { parts() } else { 1 } }))
         .send()
         .await;
     let _ = tokio::fs::remove_file(&tmp).await;
@@ -221,6 +292,11 @@ async fn run(st: &AppState, kind: &str, url: &Url, k: &str) -> Result<Value, Fai
     let mut v: Value = resp.json().await.map_err(|e| Fail::Final(e.to_string()))?;
     v["status"] = json!("done");
     crate::nipples::process_scan_result(&mut v);
+    // Dauer (Download + Scan) in Sekunden, plus Teile pro Video, für die Anzeige.
+    v["took"] = json!((t0.elapsed().as_secs_f64() * 10.0).round() / 10.0);
+    if kind == "video" {
+        v["parts"] = json!(parts());
+    }
     Ok(v)
 }
 
@@ -230,6 +306,8 @@ pub struct ScanQuery {
     url: Option<String>,
     /// Abstand zum aktuellen Beitrag (0 = sichtbar, 1-3 = die nächsten); fehlt er, bleibt die Reihenfolge.
     p: Option<u32>,
+    /// 1 = sofort scannen, vor allem anderen (auch wenn alle Arbeiter belegt sind).
+    now: Option<u8>,
 }
 
 /// Ergebnis abholen: {"status":"pending"} solange der Scan läuft, sonst die Erkennungen.
@@ -252,13 +330,18 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<ScanQuery>) -> 
         return Json(json!({ "status": "off" })).into_response();
     }
     let k = key(kind, raw);
-    if let Ok(text) = tokio::fs::read_to_string(result_path(&k)).await {
+    let force = q.now == Some(1);
+    if let (false, Ok(text)) = (force, tokio::fs::read_to_string(result_path(&k)).await) {
         if let Ok(v) = serde_json::from_str::<Value>(&text) {
             return Json(v).into_response();
         }
     }
     // Noch nichts da: sicherstellen, dass der Scan läuft.
-    enqueue(st, kind, raw.to_string(), q.p.map_or(IDLE, |p| p.min(IDLE)));
+    if q.now == Some(1) {
+        rush(st, kind, raw.to_string());
+    } else {
+        enqueue(st, kind, raw.to_string(), q.p.map_or(IDLE, |p| p.min(IDLE)));
+    }
     Json(json!({ "status": "pending" })).into_response()
 }
 
@@ -292,4 +375,50 @@ pub async fn focus(Json(f): Json<Focus>) -> Response {
         }
     }
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// Auslastung: laufende und wartende Scans, Arbeiter-Limit, Rechner-Last.
+pub async fn status(State(st): State<AppState>) -> Response {
+    if scanner().is_none() {
+        return Json(json!({ "off": true })).into_response();
+    }
+    start_workers(&st);
+    let queued = queue().jobs.lock().await.len();
+    let running = inflight().lock().await.len();
+    let load: f64 = std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|t| t.split_whitespace().next().and_then(|v| v.parse().ok()))
+        .unwrap_or(0.0);
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+    Json(json!({ "queued": queued, "running": running, "workers": limit(), "max": MAX_WORKERS, "parts": parts(), "load": load, "cpus": cpus }))
+        .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct Workers {
+    n: usize,
+}
+
+/// Anzahl gleichzeitiger Scans setzen (bleibt nach Neustart erhalten).
+pub async fn set_workers(Json(w): Json<Workers>) -> Response {
+    let n = w.n.clamp(1, MAX_WORKERS);
+    LIMIT.store(n, Ordering::Relaxed);
+    let _ = tokio::fs::create_dir_all(optimize::cache_dir()).await;
+    let _ = tokio::fs::write(limit_file(), n.to_string()).await;
+    queue().wake.notify_waiters();
+    Json(json!({ "workers": n })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct PartsReq {
+    n: usize,
+}
+
+/// Teile pro Video setzen (1-8, bleibt nach Neustart erhalten).
+pub async fn set_parts(Json(w): Json<PartsReq>) -> Response {
+    let n = w.n.clamp(1, 16);
+    PARTS.store(n, Ordering::Relaxed);
+    let _ = tokio::fs::create_dir_all(optimize::cache_dir()).await;
+    let _ = tokio::fs::write(parts_file(), n.to_string()).await;
+    Json(json!({ "parts": n })).into_response()
 }

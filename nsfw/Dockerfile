@@ -14,6 +14,8 @@ RUN curl -fsSL -o /app/holistic_landmarker.task \
     "https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/latest/holistic_landmarker.task"
 RUN curl -fsSL -o /app/yolo11n.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
 RUN curl -fsSL -o /app/face_parsing.onnx https://github.com/yakhyo/face-parsing/releases/download/weights/resnet18.onnx
+RUN curl -fsSL -o /tmp/b.zip https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip \
+ && python -c "import zipfile;zipfile.ZipFile('/tmp/b.zip').extract('genderage.onnx','/app')" && rm /tmp/b.zip
 COPY app.py .
 ENV ORT_THREADS=3 DETECTORS=2 MIN_SCORE=0.25 POSE_MAX=3 POSE=1 YOLO=1 HANDS=1 HANDS_MAX=4 HOLISTIC=0 COLORS=1 COLORS_EVERY=12
 EXPOSE 8000

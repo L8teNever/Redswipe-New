@@ -1,11 +1,11 @@
 //! Rust-Algorithmus zur präzisen Erkennung, Zuordnung und Paarung von Brustwarzen / Brüsten.
 //!
-//! Kombiniert NudeNet-Erkennungen (EXPOSED_BREAST_F, COVERED_BREAST_F, EXPOSED_BREAST_M)
+//! Kombiniert NudeNet-Erkennungen (FEMALE_BREAST_EXPOSED, FEMALE_BREAST_COVERED, MALE_BREAST_EXPOSED)
 //! mit MediaPipe-Pose-Landmarks (33 Körperpunkte) zu anatomisch exakten Brustwarzen-Punkten.
 //!
 //! Regeln:
 //! 1. Als Sicherung: Ein Punkt wird NUR gesetzt, wenn NudeNet an der Stelle eine Brust erkannt hat.
-//! 2. Unbedeckte Brüste (EXPOSED_BREAST_F) werden gegenüber bedeckten (COVERED_BREAST_F) bevorzugt
+//! 2. Unbedeckte Brüste (FEMALE_BREAST_EXPOSED) werden gegenüber bedeckten (FEMALE_BREAST_COVERED) bevorzugt
 //!    und mit höherer Konfidenz bewertet (bedeckte werden aber nicht ausgeschlossen).
 //! 3. Bei mehreren Personen werden Brüste anhand anatomischer Torso-Vektoren eindeutig der passenden
 //!    Person und Körperseite (links vs. rechts) zugeordnet.
@@ -47,6 +47,8 @@ pub struct BreastBox {
     pub h: f64,
     pub cx: f64,
     pub cy: f64,
+    /// Per Bildanalyse gefundene Brustwarze (x, y, Konfidenz), falls vorhanden.
+    pub nip: Option<(f64, f64, f64)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,11 +82,11 @@ pub fn process_scan_result(v: &mut Value) {
     }
 }
 
-fn parse_breast_box(label: &str, score: f64, box_arr: &[Value]) -> Option<BreastBox> {
+fn parse_breast_box(label: &str, score: f64, box_arr: &[Value], nip: Option<(f64, f64, f64)>) -> Option<BreastBox> {
     let kind = match label {
-        "EXPOSED_BREAST_F" => BreastKind::ExposedFemale,
-        "COVERED_BREAST_F" => BreastKind::CoveredFemale,
-        "EXPOSED_BREAST_M" => BreastKind::ExposedMale,
+        "FEMALE_BREAST_EXPOSED" => BreastKind::ExposedFemale,
+        "FEMALE_BREAST_COVERED" => BreastKind::CoveredFemale,
+        "MALE_BREAST_EXPOSED" => BreastKind::ExposedMale,
         _ => return None,
     };
     if box_arr.len() < 4 {
@@ -96,7 +98,7 @@ fn parse_breast_box(label: &str, score: f64, box_arr: &[Value]) -> Option<Breast
     let h = box_arr[3].as_f64()?;
     let cx = x + w * 0.5;
     let cy = y + h * 0.5;
-    Some(BreastBox { kind, score, x, y, w, h, cx, cy })
+    Some(BreastBox { kind, score, x, y, w, h, cx, cy, nip })
 }
 
 /// Analysiert ein Einzelbild.
@@ -107,7 +109,8 @@ fn process_image(v: &mut Value) {
             let label = d.get("label").and_then(|l| l.as_str()).unwrap_or("");
             let score = d.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
             if let Some(b) = d.get("box").and_then(|b| b.as_array()) {
-                if let Some(bb) = parse_breast_box(label, score, b) {
+                let nip = d.get("nip").and_then(|n| n.as_array()).and_then(|n| Some((n.first()?.as_f64()?, n.get(1)?.as_f64()?, n.get(2)?.as_f64()?)));
+                if let Some(bb) = parse_breast_box(label, score, b, nip) {
                     boxes.push(bb);
                 }
             }
@@ -176,7 +179,12 @@ fn process_video(v: &mut Value) {
                                     let score = vals[1].as_f64().unwrap_or(0.0);
                                     let box_slice = &vals[2..6];
                                     if let Some(label) = names.get(label_idx) {
-                                        if let Some(bb) = parse_breast_box(label, score, box_slice) {
+                                        let nip = if vals.len() >= 9 {
+                                            Some((vals[6].as_f64().unwrap_or(0.0), vals[7].as_f64().unwrap_or(0.0), vals[8].as_f64().unwrap_or(0.0)))
+                                        } else {
+                                            None
+                                        };
+                                        if let Some(bb) = parse_breast_box(label, score, box_slice, nip) {
                                             b_list.push(bb);
                                         }
                                     }
@@ -516,6 +524,10 @@ pub fn reconcile_frame(poses: &mut [Vec<[f64; 3]>], boxes: &[BreastBox]) -> Vec<
 
 /// Berechnet die genaue Brustwarzen-Position aus der NudeNet-Box und dem anatomischen Anker.
 fn calculate_nipple_point(b: &BreastBox, anchor: (f64, f64)) -> NipplePoint {
+    // Gemessene Position aus der Bildanalyse hat Vorrang vor der Schätzung.
+    if let (Some((nx, ny, nc)), true) = (b.nip, b.kind.is_exposed()) {
+        return NipplePoint { x: round(nx, 4), y: round(ny, 4), conf: round((nc * 0.5 + b.score * 0.5).clamp(0.5, 0.99), 3), exposed: true };
+    }
     let (cx, cy) = if b.kind.is_exposed() {
         // Bei unbedeckter Brust: Das Zentrum der NudeNet-Box ist exakt die Brustwarze/Areola.
         // Feine anatomische Zentrierung: 85 % Box-Zentrum, 15 % Anker-Richtung.
@@ -651,6 +663,7 @@ mod tests {
                 h: 0.08,
                 cx: 0.57,
                 cy: 0.44,
+                nip: None,
             },
             BreastBox {
                 kind: BreastKind::CoveredFemale,
@@ -661,6 +674,7 @@ mod tests {
                 h: 0.08,
                 cx: 0.43,
                 cy: 0.44,
+                nip: None,
             },
         ];
 
@@ -698,6 +712,7 @@ mod tests {
                 h: 0.08,
                 cx: 0.57,
                 cy: 0.44,
+                nip: None,
             },
             BreastBox {
                 kind: BreastKind::ExposedFemale,
@@ -708,6 +723,7 @@ mod tests {
                 h: 0.07,
                 cx: 0.57,
                 cy: 0.44,
+                nip: None,
             },
         ];
 
@@ -746,6 +762,7 @@ mod tests {
                 h: 0.06,
                 cx: 0.33,
                 cy: 0.43,
+                nip: None,
             },
             BreastBox {
                 kind: BreastKind::ExposedFemale,
@@ -756,6 +773,7 @@ mod tests {
                 h: 0.06,
                 cx: 0.27,
                 cy: 0.43,
+                nip: None,
             },
             // Brüste für Person 1
             BreastBox {
@@ -767,6 +785,7 @@ mod tests {
                 h: 0.06,
                 cx: 0.73,
                 cy: 0.43,
+                nip: None,
             },
             BreastBox {
                 kind: BreastKind::CoveredFemale,
@@ -777,6 +796,7 @@ mod tests {
                 h: 0.06,
                 cx: 0.67,
                 cy: 0.43,
+                nip: None,
             },
         ];
 
