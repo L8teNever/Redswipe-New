@@ -5,7 +5,7 @@ use axum::{
     extract::{DefaultBodyLimit, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use reqwest::Url;
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::services::{ServeDir, ServeFile};
 
+mod actions;
 mod browser;
 mod login;
 mod optimize;
@@ -65,6 +66,8 @@ struct Post {
     comments: i64,
     permalink: String,
     nsfw: bool,
+    /// Dein aktueller Vote: "up", "down" oder "none".
+    vote: &'static str,
     media: Vec<Media>,
 }
 
@@ -103,6 +106,8 @@ async fn main() {
         .route("/api/feed", get(feed))
         .route("/api/media", get(media))
         .route("/api/opt", get(optimize::handler))
+        .route("/api/vote", post(actions::vote).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/follow", post(actions::follow).layer(DefaultBodyLimit::max(1024)))
         .route(
             "/api/login",
             get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),
@@ -337,6 +342,11 @@ fn to_post(d: &Value) -> Option<Post> {
             d["permalink"].as_str().unwrap_or_default()
         ),
         nsfw: d["over_18"].as_bool().unwrap_or(false),
+        vote: match d["likes"].as_bool() {
+            Some(true) => "up",
+            Some(false) => "down",
+            None => "none",
+        },
         media,
     })
 }

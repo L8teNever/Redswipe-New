@@ -139,3 +139,106 @@ async fn read_page(addr: &str, id: &str) -> Result<String, BrowserError> {
         sleep(Duration::from_millis(400)).await;
     }
 }
+
+/// Öffnet `page_url` im Browser, wartet bis die Seite geladen ist und führt dort `expression` aus
+/// (darf ein Promise sein). So laufen Aktionen wie Voten oder Folgen mit dem echten Login und
+/// den echten Cookies, genau wie das Addon es im Reddit-Tab macht.
+pub async fn eval_in_page(page_url: &str, expression: &str) -> Result<Value, BrowserError> {
+    let Some(b) = base() else {
+        return Err(BrowserError::Unavailable("BROWSER_CDP nicht gesetzt".into()));
+    };
+    let addr = resolve(&b).await.map_err(BrowserError::Unavailable)?;
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| BrowserError::Failed(e.to_string()))?;
+
+    let new_url = format!("http://{addr}/json/new?{}", urlencoding::encode(page_url));
+    let target: Value = http
+        .put(&new_url)
+        .send()
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser nicht erreichbar: {e}")))?
+        .json()
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser antwortet ungültig: {e}")))?;
+    let Some(id) = target["id"].as_str().map(str::to_string) else {
+        return Err(BrowserError::Unavailable("Browser hat keinen Tab geöffnet".into()));
+    };
+
+    let result = timeout(Duration::from_secs(40), run_expression(&addr, &id, expression)).await;
+    let _ = http.get(format!("http://{addr}/json/close/{id}")).send().await;
+    match result {
+        Ok(r) => r,
+        Err(_) => Err(BrowserError::Failed("Der Browser hat zu lange gebraucht".into())),
+    }
+}
+
+async fn cdp_call(
+    ws: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    id: u64,
+    method: &str,
+    params: Value,
+) -> Result<Value, BrowserError> {
+    ws.send(Message::text(json!({"id": id, "method": method, "params": params}).to_string()))
+        .await
+        .map_err(|e| BrowserError::Failed(format!("Browser-Steuerung: {e}")))?;
+    loop {
+        let Some(m) = ws.next().await else {
+            return Err(BrowserError::Failed("Browser hat die Verbindung geschlossen".into()));
+        };
+        let m = m.map_err(|e| BrowserError::Failed(format!("Browser-Steuerung: {e}")))?;
+        if let Message::Text(t) = m {
+            if let Ok(v) = serde_json::from_str::<Value>(&t) {
+                if v["id"].as_u64() == Some(id) {
+                    return Ok(v);
+                }
+            }
+        }
+    }
+}
+
+async fn run_expression(addr: &str, id: &str, expression: &str) -> Result<Value, BrowserError> {
+    let (mut ws, _) = connect_async(format!("ws://{addr}/devtools/page/{id}"))
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser-Steuerung nicht erreichbar: {e}")))?;
+
+    // Warten, bis die Seite geladen ist.
+    let started = Instant::now();
+    let mut n = 1u64;
+    loop {
+        if started.elapsed() > Duration::from_secs(25) {
+            return Err(BrowserError::Failed("Reddit hat im Browser nicht rechtzeitig geladen".into()));
+        }
+        let r = cdp_call(
+            &mut ws,
+            n,
+            "Runtime.evaluate",
+            json!({"expression": "location.href+'|'+document.readyState", "returnByValue": true}),
+        )
+        .await?;
+        n += 1;
+        let s = r["result"]["result"]["value"].as_str().unwrap_or("");
+        if s.contains("/login") || s.contains("/account/") {
+            return Err(BrowserError::NeedsLogin("Reddit will einen Login".into()));
+        }
+        if s.starts_with("https://www.reddit.com") && s.ends_with("|complete") {
+            break;
+        }
+        sleep(Duration::from_millis(300)).await;
+    }
+
+    let r = cdp_call(
+        &mut ws,
+        n,
+        "Runtime.evaluate",
+        json!({"expression": expression, "awaitPromise": true, "returnByValue": true}),
+    )
+    .await?;
+    if let Some(ex) = r["result"]["exceptionDetails"].as_object() {
+        let text = ex.get("text").and_then(Value::as_str).unwrap_or("Fehler im Browser");
+        return Err(BrowserError::Failed(text.to_string()));
+    }
+    Ok(r["result"]["result"]["value"].clone())
+}

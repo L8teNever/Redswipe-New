@@ -80,6 +80,16 @@
     border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 20px; }
   .sound[hidden] { display: none; }
 
+  /* Voten und Folgen (rechts über dem Ton-Button) */
+  .rail { position: absolute; right: 14px; bottom: 150px; z-index: 5; display: flex; flex-direction: column; gap: 10px; }
+  .rail button { width: 46px; height: 46px; border-radius: 50%; border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 22px; line-height: 1; }
+  .rail button.up.on { background: #ff4500; }
+  .rail button.down.on { background: #7193ff; }
+  .rail button.follow.on { background: #2e9e5b; }
+  .rail button:disabled { opacity: .5; }
+  .toast { position: fixed; left: 50%; top: calc(60px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 50; max-width: 86vw;
+    background: rgba(0,0,0,.8); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 14px; pointer-events: none; }
+
   .pauseicon { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 64px; opacity: 0;
     transition: opacity .3s; pointer-events: none; z-index: 2; text-shadow: 0 0 12px rgba(0,0,0,.6); }
   .pauseicon.show { opacity: .85; }
@@ -487,6 +497,87 @@
     return slide;
   }
 
+
+  // ---------- Voten und Folgen ----------
+  const FOLLOW_KEY = 'redswipe_followed_users';
+  function followedList() {
+    try { const a = JSON.parse(localStorage.getItem(FOLLOW_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+  }
+  function isFollowed(u) { return followedList().some((x) => x.toLowerCase() === u.toLowerCase()); }
+  function setFollowedLocal(u, on) {
+    const list = followedList().filter((x) => x.toLowerCase() !== u.toLowerCase());
+    if (on) list.push(u);
+    try { localStorage.setItem(FOLLOW_KEY, JSON.stringify(list)); } catch {}
+  }
+  let toastTimer = 0;
+  function toast(msg) {
+    let t = document.querySelector('.toast');
+    if (!t) { t = el('div', 'toast'); document.body.appendChild(t); }
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 2500);
+  }
+  async function post(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'X-Redswipe': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) {
+      let m = 'Aktion fehlgeschlagen (HTTP ' + r.status + ')';
+      try { const d = await r.json(); if (d.error) m = d.error; } catch {}
+      throw new Error(m);
+    }
+  }
+  function buildRail(p) {
+    const rail = el('div', 'rail');
+    let vote = p.vote || 'none';
+    const up = el('button', 'up', '▲');
+    const down = el('button', 'down', '▼');
+    up.type = down.type = 'button';
+    up.setAttribute('aria-label', 'Upvote');
+    down.setAttribute('aria-label', 'Downvote');
+    const paint = () => { up.classList.toggle('on', vote === 'up'); down.classList.toggle('on', vote === 'down'); };
+    paint();
+    const cast = async (target) => {
+      const prev = vote;
+      vote = vote === target ? 'none' : target;
+      paint();
+      up.disabled = down.disabled = true;
+      try { await post('/api/vote', { id: p.id, state: vote }); }
+      catch (e) { vote = prev; paint(); toast(e.message); }
+      up.disabled = down.disabled = false;
+    };
+    up.addEventListener('click', (e) => { e.stopPropagation(); cast('up'); });
+    down.addEventListener('click', (e) => { e.stopPropagation(); cast('down'); });
+    rail.append(up, down);
+
+    if (p.author && p.author !== '[deleted]') {
+      const fb = el('button', 'follow', '＋');
+      fb.type = 'button';
+      const paintF = () => {
+        const on = isFollowed(p.author);
+        fb.classList.toggle('on', on);
+        fb.textContent = on ? '✓' : '＋';
+        fb.setAttribute('aria-label', on ? `u/${p.author} entfolgen` : `u/${p.author} folgen`);
+      };
+      paintF();
+      fb.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const want = !isFollowed(p.author);
+        fb.disabled = true;
+        try {
+          await post('/api/follow', { user: p.author, follow: want });
+          setFollowedLocal(p.author, want);
+          document.querySelectorAll('.follow[data-u="' + p.author.replace(/"/g, '') + '"]').forEach((b) => b._paint && b._paint());
+          toast(want ? `Du folgst u/${p.author}` : `u/${p.author} entfolgt`);
+        } catch (err) { toast(err.message); }
+        fb.disabled = false;
+      });
+      fb.dataset.u = p.author;
+      fb._paint = paintF;
+      rail.appendChild(fb);
+    }
+    return rail;
+  }
+
   function appendPost(p) {
     const eager = feed.querySelectorAll('.post').length < 2;
     const sec = el('section', 'post');
@@ -541,6 +632,8 @@
       sec.appendChild(sb);
       sec._sound = sb;
     }
+
+    sec.appendChild(buildRail(p));
 
     // Info: nur "r/Subreddit · u/Autor" (Link zum Beitrag), wie im Addon
     const info = el('div', 'info');
