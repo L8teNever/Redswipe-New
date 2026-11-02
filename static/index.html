@@ -90,6 +90,26 @@
   .toast { position: fixed; left: 50%; top: calc(60px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 50; max-width: 86vw;
     background: rgba(0,0,0,.8); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 14px; pointer-events: none; }
 
+
+  /* NudeNet-Ergebnisse (nur sichtbar, wenn "Anzeigen" an ist) */
+  #scanBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 10px; z-index: 11; height: 44px; padding: 0 14px;
+    border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
+  #scanBtn.on { background: #ff4500; border-color: #ff4500; font-weight: 600; }
+  #scanBtn[hidden] { display: none; }
+  .scanbox { display: none; position: absolute; z-index: 3; pointer-events: none; }
+  body.scan-on .scanbox { display: block; }
+  .scanbox .bx { position: absolute; border: 2px solid #ff4500; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
+  .scanbox .bx.cov { border-color: #4aa3ff; }
+  .scanbox .bx span { position: absolute; left: -2px; top: -18px; font-size: 11px; line-height: 14px; padding: 1px 5px; border-radius: 4px;
+    background: #ff4500; color: #fff; white-space: nowrap; }
+  .scanbox .bx.cov span { background: #2b78c4; }
+  .scaninfo { display: none; position: absolute; z-index: 4; left: 12px; right: 74px; bottom: calc(52px + env(safe-area-inset-bottom));
+    flex-wrap: wrap; gap: 6px; pointer-events: none; }
+  body.scan-on .scaninfo { display: flex; }
+  .scaninfo .chip { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.7); color: #fff; }
+  .scaninfo .chip.hit { background: rgba(255,69,0,.85); }
+  .scaninfo .chip.cov { background: rgba(43,120,196,.85); }
+
   .pauseicon { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 64px; opacity: 0;
     transition: opacity .3s; pointer-events: none; z-index: 2; text-shadow: 0 0 12px rgba(0,0,0,.6); }
   .pauseicon.show { opacity: .85; }
@@ -135,6 +155,7 @@
 </div>
 
 <button id="menuBtn" type="button" aria-label="Menü" hidden>☰</button>
+<button id="scanBtn" type="button" title="NudeNet-Ergebnisse anzeigen (der Scan läuft immer im Hintergrund)" aria-pressed="false" hidden>Anzeigen</button>
 
 <div id="vpn" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
   <div class="card">
@@ -380,6 +401,107 @@
   }
 
   // ---------- Sichtbarkeit: Video-Logik ----------
+
+  // ---------- NudeNet-Ergebnisse ----------
+  // Der Server scannt alles schon im Hintergrund; hier wird nur abgeholt und angezeigt, wenn "Anzeigen" an ist.
+  const SCAN_KEY = 'redswipe_scan_show';
+  const scanBtn = $('#scanBtn');
+  let scanOn = false;
+  try { scanOn = localStorage.getItem(SCAN_KEY) === '1'; } catch {}
+  const LABELS = {
+    FEMALE_GENITALIA_EXPOSED: 'Vulva frei', FEMALE_GENITALIA_COVERED: 'Vulva bedeckt',
+    MALE_GENITALIA_EXPOSED: 'Penis frei', ANUS_EXPOSED: 'Anus frei', ANUS_COVERED: 'Anus bedeckt',
+    FEMALE_BREAST_EXPOSED: 'Brust frei', FEMALE_BREAST_COVERED: 'Brust bedeckt', MALE_BREAST_EXPOSED: 'Männerbrust frei',
+    BUTTOCKS_EXPOSED: 'Po frei', BUTTOCKS_COVERED: 'Po bedeckt', BELLY_EXPOSED: 'Bauch frei', BELLY_COVERED: 'Bauch bedeckt',
+    ARMPITS_EXPOSED: 'Achseln frei', ARMPITS_COVERED: 'Achseln bedeckt', FEET_EXPOSED: 'Füße frei', FEET_COVERED: 'Füße bedeckt',
+    FACE_FEMALE: 'Gesicht (w)', FACE_MALE: 'Gesicht (m)',
+  };
+  const labelName = (l) => LABELS[l] || l.toLowerCase().replace(/_/g, ' ');
+  const isCovered = (l) => /COVERED|^FACE_/.test(l);
+  const pct = (x) => Math.round(x * 100) + ' %';
+  const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+  function setScanOn(on) {
+    scanOn = on;
+    try { localStorage.setItem(SCAN_KEY, on ? '1' : '0'); } catch {}
+    scanBtn.classList.toggle('on', on);
+    scanBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    document.body.classList.toggle('scan-on', on);
+    if (on) document.querySelectorAll('.post[data-visible="1"]').forEach(scanPost);
+  }
+  scanBtn.addEventListener('click', () => setScanOn(!scanOn));
+
+  // Der Rahmen soll genau auf dem sichtbaren Bild liegen (object-fit: contain).
+  function fitBox(layer, slide, w, h) {
+    const sw = slide.clientWidth, sh = slide.clientHeight;
+    if (!sw || !sh || !w || !h) return;
+    const k = Math.min(sw / w, sh / h);
+    const bw = w * k, bh = h * k;
+    Object.assign(layer.style, { left: (sw - bw) / 2 + 'px', top: (sh - bh) / 2 + 'px', width: bw + 'px', height: bh + 'px' });
+  }
+
+  function renderScan(slide, m, r) {
+    slide.querySelectorAll('.scanbox, .scaninfo').forEach((n) => n.remove());
+    const info = el('div', 'scaninfo');
+    const dets = r.detections || [];
+    if (m.type === 'image' && dets.length) {
+      const layer = el('div', 'scanbox');
+      dets.forEach((d) => {
+        const b = el('div', 'bx' + (isCovered(d.label) ? ' cov' : ''));
+        b.style.left = d.box[0] * 100 + '%'; b.style.top = d.box[1] * 100 + '%';
+        b.style.width = d.box[2] * 100 + '%'; b.style.height = d.box[3] * 100 + '%';
+        b.appendChild(el('span', '', `${labelName(d.label)} ${pct(d.score)}`));
+        layer.appendChild(b);
+      });
+      slide.appendChild(layer);
+      fitBox(layer, slide, r.width, r.height);
+      new ResizeObserver(() => fitBox(layer, slide, r.width, r.height)).observe(slide);
+    }
+    if (!dets.length) {
+      info.appendChild(el('span', 'chip', m.type === 'video' ? `Nichts erkannt (${r.frames} Frames geprüft)` : 'Nichts erkannt'));
+    } else if (m.type === 'video') {
+      info.appendChild(el('span', 'chip', `${r.frames} Frames geprüft`));
+      dets.forEach((d) => info.appendChild(el('span', 'chip ' + (isCovered(d.label) ? 'cov' : 'hit'),
+        `${labelName(d.label)} · max ${pct(d.score)} · ${pct(d.share)} der Frames · ${mmss(d.first)}–${mmss(d.last)}`)));
+    } else {
+      dets.forEach((d) => info.appendChild(el('span', 'chip ' + (isCovered(d.label) ? 'cov' : 'hit'), `${labelName(d.label)} ${pct(d.score)}`)));
+    }
+    slide.appendChild(info);
+  }
+
+  function renderPending(slide, text) {
+    slide.querySelectorAll('.scaninfo').forEach((n) => n.remove());
+    const info = el('div', 'scaninfo');
+    info.appendChild(el('span', 'chip', text));
+    slide.appendChild(info);
+  }
+
+  async function scanSlide(slide, m) {
+    if (!m.src || (m.type !== 'image' && m.type !== 'video') || slide._scanBusy) return;
+    if (slide._scanDone) return;
+    slide._scanBusy = true;
+    try {
+      for (let i = 0; i < 400 && slide.isConnected && scanOn; i++) {
+        let r;
+        try {
+          const res = await fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}`);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          r = await res.json();
+        } catch { renderPending(slide, 'Scan nicht abrufbar'); await new Promise((ok) => setTimeout(ok, 5000)); continue; }
+        if (r.status === 'done') { slide._scanDone = true; renderScan(slide, m, r); return; }
+        if (r.status === 'failed') { slide._scanDone = true; renderPending(slide, 'Scan fehlgeschlagen'); return; }
+        if (r.status === 'off') { slide._scanDone = true; renderPending(slide, 'Scanner ist nicht eingerichtet'); return; }
+        renderPending(slide, 'Scan läuft …');
+        await new Promise((ok) => setTimeout(ok, m.type === 'video' ? 4000 : 1500));
+      }
+    } finally { slide._scanBusy = false; }
+  }
+
+  function scanPost(sec) {
+    if (!scanOn || !sec._media) return;
+    sec.querySelectorAll('.slide').forEach((slide, i) => { if (sec._media[i]) scanSlide(slide, sec._media[i]); });
+  }
+
   function onVisible(sec) {
     sec.dataset.visible = '1';
     sec.querySelectorAll('iframe[data-src]').forEach((f) => { if (!f.src) f.src = f.dataset.src; });
@@ -586,6 +708,7 @@
 
     const car = el('div', 'carousel');
     car.dataset.idx = '0';
+    sec._media = p.media;
     p.media.forEach((m, i) => car.appendChild(buildSlide(sec, m, i, eager)));
     sec.appendChild(car);
 
@@ -728,8 +851,10 @@
   function collapseBar(on) {
     topbar.classList.toggle('collapsed', on);
     menuBtn.hidden = !on;
+    scanBtn.hidden = !on;
   }
   menuBtn.addEventListener('click', () => collapseBar(false));
+  setScanOn(scanOn);
   $('#homeBtn').addEventListener('click', () => { input.value = ''; load(); });
 
   // Echter Vollbildmodus, wo der Browser ihn erlaubt (iPhone-Safari lehnt ab, dann geht es normal weiter)

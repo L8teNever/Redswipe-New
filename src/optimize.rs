@@ -56,7 +56,7 @@ pub fn opt_url(kind: &str, raw: &str, audio: &[String]) -> String {
     s
 }
 
-fn cache_dir() -> PathBuf {
+pub(crate) fn cache_dir() -> PathBuf {
     PathBuf::from(env::var("CACHE_DIR").unwrap_or_else(|_| "/tmp/redswipe-cache".into()))
 }
 
@@ -152,7 +152,7 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<OptQuery>, req:
     original(raw)
 }
 
-async fn download(st: &AppState, url: &Url, to: &PathBuf) -> Result<(), String> {
+pub(crate) async fn download(st: &AppState, url: &Url, to: &PathBuf) -> Result<(), String> {
     let resp = st
         .client
         .get(url.clone())

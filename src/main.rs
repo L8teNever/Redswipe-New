@@ -17,6 +17,7 @@ mod actions;
 mod browser;
 mod login;
 mod optimize;
+mod scan;
 mod vpn;
 
 // Reddit antwortet auf unbekannte Clients oft mit 403/429, daher ein Browser-User-Agent.
@@ -57,7 +58,7 @@ struct FeedResponse {
 }
 
 #[derive(Serialize, Debug, PartialEq)]
-struct Post {
+pub struct Post {
     id: String,
     title: String,
     subreddit: String,
@@ -72,7 +73,7 @@ struct Post {
 }
 
 #[derive(Serialize, Debug, PartialEq)]
-struct Media {
+pub struct Media {
     #[serde(rename = "type")]
     kind: &'static str,
     /// Bereits auf /api/media umgeschrieben.
@@ -81,6 +82,8 @@ struct Media {
     height: Option<i64>,
     /// Kandidaten für die Tonspur (Reddit-Videos haben Ton in einer eigenen Datei).
     audio: Vec<String>,
+    /// Originaladresse des Mediums (für den NudeNet-Scan); leer bei Einbettungen.
+    src: String,
 }
 
 #[tokio::main]
@@ -106,6 +109,7 @@ async fn main() {
         .route("/api/feed", get(feed))
         .route("/api/media", get(media))
         .route("/api/opt", get(optimize::handler))
+        .route("/api/scan", get(scan::handler))
         .route("/api/vote", post(actions::vote).layer(DefaultBodyLimit::max(1024)))
         .route("/api/follow", post(actions::follow).layer(DefaultBodyLimit::max(1024)))
         .route(
@@ -168,6 +172,7 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
             Ok(text) => match serde_json::from_str::<Value>(&text) {
                 Ok(value) => {
                     let (posts, after) = parse_listing(&value);
+                    scan::enqueue_posts(&st, &posts);
                     return Json(FeedResponse { posts, after }).into_response();
                 }
                 Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}")),
@@ -210,6 +215,7 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
     };
 
     let (posts, after) = parse_listing(&value);
+    scan::enqueue_posts(&st, &posts);
     Json(FeedResponse { posts, after }).into_response()
 }
 
@@ -435,6 +441,7 @@ fn image(raw: &str, dims: &Value) -> Media {
         width: dims["x"].as_i64().or(dims["width"].as_i64()),
         height: dims["y"].as_i64().or(dims["height"].as_i64()),
         audio: Vec::new(),
+        src: raw.replace("&amp;", "&"),
     }
 }
 
@@ -446,11 +453,12 @@ fn video(raw: &str, audio: Vec<String>, dims: &Value) -> Media {
         height: dims["height"].as_i64(),
         // Optimierte Videos haben den Ton schon eingebaut.
         audio: if optimize::enabled() { Vec::new() } else { audio.iter().map(|a| proxy(a)).collect() },
+        src: raw.replace("&amp;", "&"),
     }
 }
 
 fn embed(url: &str) -> Media {
-    Media { kind: "embed", url: url.to_string(), width: None, height: None, audio: Vec::new() }
+    Media { kind: "embed", url: url.to_string(), width: None, height: None, audio: Vec::new(), src: String::new() }
 }
 
 /// ID aus "https://www.redgifs.com/watch/<id>" (nur Buchstaben/Ziffern, sonst None).
