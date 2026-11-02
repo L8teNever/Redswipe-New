@@ -7,14 +7,14 @@ RUN touch src/main.rs && cargo build --release
 
 FROM debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -r -u 10001 app
 COPY --from=builder /app/target/release/reddit-swipe /usr/local/bin/reddit-swipe
 COPY static /app/static
-RUN mkdir /vpn && chown app /vpn
+RUN mkdir /vpn /cache && chown app /vpn /cache
 WORKDIR /app
-ENV PORT=8080 STATIC_DIR=/app/static VPN_DIR=/vpn
+ENV PORT=8080 STATIC_DIR=/app/static VPN_DIR=/vpn CACHE_DIR=/cache
 EXPOSE 8080
 USER app
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

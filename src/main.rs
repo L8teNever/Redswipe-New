@@ -15,6 +15,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 mod browser;
 mod login;
+mod optimize;
 mod vpn;
 
 // Reddit antwortet auf unbekannte Clients oft mit 403/429, daher ein Browser-User-Agent.
@@ -31,8 +32,8 @@ const ALLOWED_HOSTS: &[&str] = &[
 ];
 
 #[derive(Clone)]
-struct AppState {
-    client: reqwest::Client,
+pub struct AppState {
+    pub client: reqwest::Client,
 }
 
 #[derive(Deserialize)]
@@ -94,12 +95,14 @@ async fn main() {
         .expect("HTTP-Client konnte nicht erstellt werden");
 
     tokio::spawn(vpn::keep_endpoint_fresh());
+    tokio::spawn(optimize::cleanup_loop());
 
     let index = format!("{static_dir}/index.html");
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/feed", get(feed))
         .route("/api/media", get(media))
+        .route("/api/opt", get(optimize::handler))
         .route(
             "/api/login",
             get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),
@@ -115,7 +118,7 @@ async fn main() {
     axum::serve(listener, app).await.expect("Server-Fehler");
 }
 
-fn err(code: StatusCode, msg: impl Into<String>) -> Response {
+pub fn err(code: StatusCode, msg: impl Into<String>) -> Response {
     (code, Json(json!({ "error": msg.into() }))).into_response()
 }
 
@@ -205,6 +208,10 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
     Json(FeedResponse { posts, after }).into_response()
 }
 
+pub fn media_allowed(url: &Url) -> bool {
+    url.scheme() == "https" && url.host_str().is_some_and(|h| ALLOWED_HOSTS.contains(&h))
+}
+
 async fn media(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response {
     let Some(raw) = q.url else {
         return err(StatusCode::BAD_REQUEST, "Parameter url fehlt");
@@ -212,9 +219,7 @@ async fn media(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<M
     let Ok(url) = Url::parse(&raw) else {
         return err(StatusCode::BAD_REQUEST, "Ungültige URL");
     };
-    let allowed = url.scheme() == "https"
-        && url.host_str().is_some_and(|h| ALLOWED_HOSTS.contains(&h));
-    if !allowed {
+    if !media_allowed(&url) {
         return err(StatusCode::FORBIDDEN, "Host nicht erlaubt");
     }
 
@@ -416,7 +421,7 @@ fn extract_media(d: &Value) -> Vec<Media> {
 fn image(raw: &str, dims: &Value) -> Media {
     Media {
         kind: "image",
-        url: proxy(raw),
+        url: if optimize::enabled() { optimize::opt_url("image", &raw.replace("&amp;", "&"), &[]) } else { proxy(raw) },
         width: dims["x"].as_i64().or(dims["width"].as_i64()),
         height: dims["y"].as_i64().or(dims["height"].as_i64()),
         audio: Vec::new(),
@@ -426,10 +431,11 @@ fn image(raw: &str, dims: &Value) -> Media {
 fn video(raw: &str, audio: Vec<String>, dims: &Value) -> Media {
     Media {
         kind: "video",
-        url: proxy(raw),
+        url: if optimize::enabled() { optimize::opt_url("video", &raw.replace("&amp;", "&"), &audio) } else { proxy(raw) },
         width: dims["width"].as_i64(),
         height: dims["height"].as_i64(),
-        audio: audio.iter().map(|a| proxy(a)).collect(),
+        // Optimierte Videos haben den Ton schon eingebaut.
+        audio: if optimize::enabled() { Vec::new() } else { audio.iter().map(|a| proxy(a)).collect() },
     }
 }
 
@@ -520,9 +526,10 @@ mod tests {
         assert!(p.nsfw);
         assert_eq!(p.permalink, "https://www.reddit.com/r/aww/comments/t2/");
         assert_eq!(p.media[0].kind, "video");
-        assert_eq!(p.media[0].url, "/api/media?url=https%3A%2F%2Fv.redd.it%2Fxyz%2FDASH_720.mp4%3Fsource%3Dfallback");
-        assert_eq!(p.media[0].audio.len(), 3);
-        assert!(p.media[0].audio[0].contains("DASH_AUDIO_128.mp4"));
+        assert!(p.media[0].url.starts_with("/api/opt?k=video&url=https%3A%2F%2Fv.redd.it%2Fxyz%2FDASH_720.mp4%3Fsource%3Dfallback&a="));
+        assert!(p.media[0].url.contains("DASH_AUDIO_128.mp4"));
+        // Ton ist im optimierten Video schon enthalten.
+        assert!(p.media[0].audio.is_empty());
         assert_eq!(p.media[0].width, Some(720));
     }
 
@@ -539,8 +546,8 @@ mod tests {
         });
         let m = extract_media(&v);
         assert_eq!(m.len(), 2);
-        assert_eq!(m[0].url, "/api/media?url=https%3A%2F%2Fi.redd.it%2Fb.png");
-        assert_eq!(m[1].url, "/api/media?url=https%3A%2F%2Fi.redd.it%2Fa.jpg%3Fx%3D1%26y%3D2");
+        assert_eq!(m[0].url, "/api/opt?k=image&url=https%3A%2F%2Fi.redd.it%2Fb.png");
+        assert_eq!(m[1].url, "/api/opt?k=image&url=https%3A%2F%2Fi.redd.it%2Fa.jpg%3Fx%3D1%26y%3D2");
         assert_eq!(m[1].width, Some(10));
     }
 
