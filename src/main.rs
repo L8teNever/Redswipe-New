@@ -388,7 +388,7 @@ fn extract_media(d: &Value) -> Vec<Media> {
     if let Some(fallback) = rv["fallback_url"].as_str() {
         let clean = fallback.split('?').next().unwrap_or(fallback);
         let base = clean.rsplit_once('/').map(|(b, _)| b).unwrap_or(clean);
-        let audio = ["DASH_AUDIO_128.mp4", "DASH_audio.mp4", "DASH_AUDIO_64.mp4"]
+        let audio = ["CMAF_AUDIO_128.mp4", "CMAF_AUDIO_64.mp4", "DASH_AUDIO_128.mp4", "DASH_audio.mp4", "DASH_AUDIO_64.mp4"]
             .iter()
             .map(|f| format!("{base}/{f}"))
             .collect();
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(p.permalink, "https://www.reddit.com/r/aww/comments/t2/");
         assert_eq!(p.media[0].kind, "video");
         assert!(p.media[0].url.starts_with("/api/opt?k=video&url=https%3A%2F%2Fv.redd.it%2Fxyz%2FDASH_720.mp4%3Fsource%3Dfallback&a="));
-        assert!(p.media[0].url.contains("DASH_AUDIO_128.mp4"));
+        assert!(p.media[0].url.contains("CMAF_AUDIO_128.mp4"));
         // Ton ist im optimierten Video schon enthalten.
         assert!(p.media[0].audio.is_empty());
         assert_eq!(p.media[0].width, Some(720));

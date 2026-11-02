@@ -106,7 +106,7 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<OptQuery>, req:
         .filter(|s| !s.is_empty())
         .filter_map(|s| Url::parse(s).ok())
         .filter(media_allowed)
-        .take(4)
+        .take(5)
         .collect();
 
     // GIFs bleiben unverändert (sonst würde die Animation verloren gehen).
