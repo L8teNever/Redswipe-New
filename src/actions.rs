@@ -45,7 +45,7 @@ async fn run(expr: String) -> Response {
     if !browser::configured() {
         return err(StatusCode::SERVICE_UNAVAILABLE, "Der Browser ist nicht eingerichtet.");
     }
-    match browser::eval_in_page("https://www.reddit.com/robots.txt", &expr).await {
+    match browser::eval_in_page("https://www.reddit.com/", &expr).await {
         Ok(v) if v["ok"].as_bool() == Some(true) => Json(json!({ "ok": true })).into_response(),
         Ok(v) => {
             let why = v["error"].as_str().unwrap_or("Reddit hat die Aktion abgelehnt");
