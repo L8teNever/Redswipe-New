@@ -175,6 +175,27 @@ def limit_by_persons(boxes, poses, hands):
     return poses[:n], hands[: 2 * n]
 
 
+def face_boxes(items):
+    """Gesichts-Boxen (x, y, w, h normalisiert) aus den NudeNet-Treffern."""
+    return [tuple(d["box"]) for d in items if str(d["label"]).startswith("FACE_")]
+
+
+def refine_faces(poses, faces):
+    """NudeNet-Gesichter korrigieren die Pose: Gesichtspunkte (0-10) bleiben nur, wenn sie in/an einer
+    erkannten Gesichtsbox liegen. Sonst (kein Gesicht erkannt oder Punkte woanders) werden sie ausgeblendet
+    (Sichtbarkeit 0), das Frontend zeichnet sie dann nicht."""
+    out = []
+    for person in poses:
+        pts = [list(p) for p in person]
+        for i in range(min(11, len(pts))):
+            x, y = pts[i][0], pts[i][1]
+            ok = any(fx - fw * 0.4 <= x <= fx + fw * 1.4 and fy - fh * 0.4 <= y <= fy + fh * 1.4 for fx, fy, fw, fh in faces)
+            if not ok:
+                pts[i][2] = 0.0
+        out.append(pts)
+    return out
+
+
 class Req(BaseModel):
     path: str
     kind: str  # "image" | "video"
@@ -228,6 +249,7 @@ def scan_image(det, path):
         finally:
             hands.close()
     poses, hs = limit_by_persons(boxes, poses, hs)
+    poses = refine_faces(poses, face_boxes(items))
     if POSE_ON:
         out["poses"] = poses
     if HANDS_ON:
@@ -288,6 +310,7 @@ def scan_video(det, path):
         if not batch:
             return
         fut = pose_ex.submit(pose_batch, batch, idx) if pose_ex else None
+        frame_faces = []
         for i, dets in zip(idx, detect_many(det, batch)):
             t = i / fps
             seen = set()
@@ -308,8 +331,10 @@ def scan_video(det, path):
                 e["last"] = t
             if row:
                 timeline.append([round(t, 3), row])
+            frame_faces.append([tuple(r[2:6]) for r in row if names[r[0]].startswith("FACE_")])
         if fut:
-            for t, people, hs, npers in fut.result():
+            for (t, people, hs, npers), ff in zip(fut.result(), frame_faces):
+                people = refine_faces(people, ff)
                 if npers:
                     person_frames += 1
                     person_max = max(person_max, npers)
