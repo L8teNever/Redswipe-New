@@ -50,3 +50,10 @@ die App nutzt ihn über `HTTPS_PROXY`. Der Private Key wird nie an den Browser z
 - Der Upload ist nur mit Cloudflare-Access-Header erlaubt (`REQUIRE_ACCESS=0` schaltet das für lokale Tests ab).
 - Hostnamen im Endpoint (z. B. `xyz.myfritz.net`) werden alle 5 Minuten neu aufgelöst.
 - Ein Beispiel-Stack mit `gluetun` und Wächter steht in `docker-compose.vpn.example.yml`.
+
+## NudeNet-Scan (optional)
+
+Der Ordner `nsfw/` ist ein eigener Container (Python, NudeNet, ffmpeg). Er teilt sich das Cache-Volume (`/cache`) mit dem Backend
+und wird über `NSFW_URL=http://<name>:8000` angesprochen. Sobald ein Feed geladen ist, scannt das Backend alle Bilder und
+Videos im Hintergrund (Videos Frame für Frame, zusammengefasst pro Label). Die Ergebnisse liegen als `*.scan.json` im Cache.
+Im Frontend zeigt der Knopf „Anzeigen“ sie an (Boxen bei Bildern, Zusammenfassung bei Videos). Ohne `NSFW_URL` ist alles aus.
