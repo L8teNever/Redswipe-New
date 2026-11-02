@@ -21,6 +21,21 @@
   #topbar button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
   #topbar select[hidden] { display: none; }
 
+  /* VPN-Dialog */
+  #vpn { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.75); padding: 16px; }
+  #vpn[hidden] { display: none; }
+  #vpn .card { width: 100%; max-width: 440px; max-height: 90dvh; overflow: auto; background: #181818;
+    border: 1px solid #333; border-radius: 12px; padding: 16px; }
+  #vpn h2 { margin: 0 0 8px; font-size: 18px; }
+  #vpn p { margin: 8px 0; font-size: 14px; color: #ccc; line-height: 1.4; }
+  #vpn .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  #vpn button { font-size: 16px; padding: 9px 12px; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; }
+  #vpn button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
+  #vpn button:disabled { opacity: .5; }
+  #vpn .ok { color: #6fdc8c; } #vpn .bad { color: #ff7b72; }
+  #vpn input[type=file] { color: #ccc; max-width: 100%; }
+
   /* Feed: vertikales Wischen mit nativem Scroll-Snapping */
   #feed { position: fixed; inset: 0; height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory;
     overscroll-behavior: contain; scrollbar-width: none; }
@@ -86,6 +101,7 @@
     <input id="q" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
       placeholder="Reddit-Link einfügen, z. B. https://www.reddit.com/r/aww/">
     <button class="primary" type="submit">Laden</button>
+    <button id="vpnBtn" type="button" aria-label="VPN-Einstellungen" title="VPN-Einstellungen">VPN</button>
     <select id="sort" aria-label="Sortierung">
       <option value="hot">Hot</option>
       <option value="new">Neu</option>
@@ -102,6 +118,20 @@
       <option value="all">Alle</option>
     </select>
   </form>
+</div>
+
+<div id="vpn" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
+  <div class="card">
+    <h2 id="vpnTitle">VPN (WireGuard)</h2>
+    <p id="vpnState">Status wird geladen …</p>
+    <p>Lade die komplette WireGuard-<code>.conf</code> hoch (z. B. aus der Fritz!Box). Die Schlüssel werden nur auf dem Server gespeichert.</p>
+    <input id="vpnFile" type="file" accept=".conf,text/plain" aria-label="WireGuard-Config auswählen">
+    <p id="vpnMsg" role="status"></p>
+    <div class="row">
+      <button id="vpnSend" class="primary" type="button" disabled>Hochladen</button>
+      <button id="vpnClose" type="button">Schließen</button>
+    </div>
+  </div>
 </div>
 
 <div id="feed">
@@ -126,6 +156,49 @@
   const timeSel = $('#t');
   const feed = $('#feed');
   const enc = encodeURIComponent;
+
+  // ---- VPN-Dialog: Config hochladen (Server prüft Format und Keys) ----
+  const vpn = $('#vpn'), vpnState = $('#vpnState'), vpnMsg = $('#vpnMsg');
+  const vpnFile = $('#vpnFile'), vpnSend = $('#vpnSend');
+  const vpnHeaders = { 'X-Redswipe': '1' };
+
+  function setMsg(el, text, cls) { el.textContent = text; el.className = cls || ''; }
+
+  async function vpnRefresh() {
+    setMsg(vpnState, 'Status wird geladen …');
+    try {
+      const r = await fetch('/api/vpn', { headers: vpnHeaders });
+      const d = await r.json();
+      if (!r.ok) { setMsg(vpnState, d.error || 'Status nicht verfügbar.', 'bad'); return; }
+      if (!d.configured) { setMsg(vpnState, 'Noch keine VPN-Config hinterlegt.', 'bad'); return; }
+      const ip = d.ip ? 'Ausgehende IP: ' + d.ip : 'VPN noch nicht verbunden (Proxy antwortet nicht).';
+      setMsg(vpnState, 'Config vorhanden (' + d.endpoint + '). ' + ip, d.ip ? 'ok' : 'bad');
+    } catch (e) { setMsg(vpnState, 'Status nicht erreichbar.', 'bad'); }
+  }
+
+  $('#vpnBtn').addEventListener('click', () => { vpn.hidden = false; setMsg(vpnMsg, ''); vpnRefresh(); });
+  $('#vpnClose').addEventListener('click', () => { vpn.hidden = true; });
+  vpn.addEventListener('click', (e) => { if (e.target === vpn) vpn.hidden = true; });
+  vpnFile.addEventListener('change', () => { vpnSend.disabled = !vpnFile.files.length; setMsg(vpnMsg, ''); });
+
+  vpnSend.addEventListener('click', async () => {
+    const f = vpnFile.files[0];
+    if (!f) return;
+    if (f.size > 16 * 1024) { setMsg(vpnMsg, 'Die Datei ist zu groß für eine WireGuard-Config.', 'bad'); return; }
+    vpnSend.disabled = true;
+    setMsg(vpnMsg, 'Wird geprüft …');
+    try {
+      const r = await fetch('/api/vpn', { method: 'POST', headers: vpnHeaders, body: await f.text() });
+      const d = await r.json();
+      if (!r.ok) { setMsg(vpnMsg, d.error || 'Upload fehlgeschlagen.', 'bad'); }
+      else {
+        setMsg(vpnMsg, d.message, 'ok');
+        vpnFile.value = '';
+        setTimeout(vpnRefresh, 15000); // Verbindung braucht einen Moment
+      }
+    } catch (e) { setMsg(vpnMsg, 'Server nicht erreichbar.', 'bad'); }
+    vpnSend.disabled = !vpnFile.files.length;
+  });
 
   let soundOn = false;     // globaler Ton-Schalter für alle Videos
   let token = 0;           // steigt bei jedem neuen Laden, alte Antworten werden verworfen

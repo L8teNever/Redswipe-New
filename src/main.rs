@@ -2,7 +2,7 @@ use std::{env, time::Duration};
 
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -12,6 +12,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::services::{ServeDir, ServeFile};
+
+mod vpn;
 
 const DEFAULT_UA: &str = "reddit-swipe/0.1 (selbst gehostet; öffentliche Reddit-Daten)";
 const SORTS: &[&str] = &["hot", "new", "top", "rising", "best"];
@@ -88,11 +90,14 @@ async fn main() {
         .build()
         .expect("HTTP-Client konnte nicht erstellt werden");
 
+    tokio::spawn(vpn::keep_endpoint_fresh());
+
     let index = format!("{static_dir}/index.html");
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/feed", get(feed))
         .route("/api/media", get(media))
+        .route("/api/vpn", get(vpn::status).post(vpn::upload).layer(DefaultBodyLimit::max(16 * 1024)))
         .fallback_service(ServeDir::new(&static_dir).fallback(ServeFile::new(index)))
         .with_state(AppState { client });
 

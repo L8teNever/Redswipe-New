@@ -12,8 +12,9 @@ RUN apt-get update \
  && useradd -r -u 10001 app
 COPY --from=builder /app/target/release/reddit-swipe /usr/local/bin/reddit-swipe
 COPY static /app/static
+RUN mkdir /vpn && chown app /vpn
 WORKDIR /app
-ENV PORT=8080 STATIC_DIR=/app/static
+ENV PORT=8080 STATIC_DIR=/app/static VPN_DIR=/vpn
 EXPOSE 8080
 USER app
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

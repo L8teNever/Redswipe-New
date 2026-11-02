@@ -38,3 +38,15 @@ Dann ebenfalls http://localhost:8080 öffnen (Rust-Toolchain nötig).
 Reddit blockt manchmal Server-IPs (HTTP 403 oder 429). Das ist kein Fehler im Code. Dann hilft `HTTPS_PROXY` oder ein Betrieb auf einem Heim-Rechner.
 
 Es werden nur öffentlich zugängliche Reddit-Daten abgerufen.
+
+## VPN für Reddit (optional)
+
+Reddit blockt oft Rechenzentrums-IPs (HTTP 403). Dann kann der Verkehr über einen Heim-Anschluss laufen:
+Im Dialog **VPN** (oben in der Seite) lädst du eine WireGuard-`.conf` hoch (z. B. aus einer Fritz!Box). Die App prüft
+Format und Keys (je 44 Zeichen, Endung `=`), schreibt eine normalisierte Config nach `VPN_DIR` (Standard `/vpn`)
+und zeigt die ausgehende IP an. Ein `gluetun`-Container liest die Datei und stellt einen HTTP-Proxy bereit;
+die App nutzt ihn über `HTTPS_PROXY`. Der Private Key wird nie an den Browser zurückgegeben.
+
+- Der Upload ist nur mit Cloudflare-Access-Header erlaubt (`REQUIRE_ACCESS=0` schaltet das für lokale Tests ab).
+- Hostnamen im Endpoint (z. B. `xyz.myfritz.net`) werden alle 5 Minuten neu aufgelöst.
+- Ein Beispiel-Stack mit `gluetun` und Wächter steht in `docker-compose.vpn.example.yml`.

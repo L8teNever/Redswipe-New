@@ -1,0 +1,48 @@
+# Beispiel: Redswipe mit Heim-VPN (WireGuard) über gluetun.
+# Die Config wird in der Weboberfläche hochgeladen (Knopf "VPN"), nicht in dieser Datei.
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: redswipe-vpn
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun:/dev/net/tun]
+    environment:
+      VPN_SERVICE_PROVIDER: custom
+      VPN_TYPE: wireguard
+      HTTPPROXY: "on"
+      HTTPPROXY_LISTENING_ADDRESS: ":8888"
+    volumes:
+      - vpnconf:/gluetun/wireguard:ro
+
+  # Startet gluetun neu, sobald eine neue Config hochgeladen wurde.
+  vpn-watcher:
+    image: docker:cli
+    restart: unless-stopped
+    volumes:
+      - vpnconf:/vpn:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        last=$$(stat -c %Y /vpn/wg0.conf 2>/dev/null || echo none)
+        while true; do
+          now=$$(stat -c %Y /vpn/wg0.conf 2>/dev/null || echo none)
+          if [ "$$now" != "$$last" ]; then docker restart redswipe-vpn; last=$$now; fi
+          sleep 5
+        done
+
+  redswipe:
+    image: ghcr.io/l8tenever/reddit-swipe:latest
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      HTTPS_PROXY: http://gluetun:8888
+      NO_PROXY: localhost,127.0.0.1
+    ports:
+      - 8080:8080
+    volumes:
+      - vpnconf:/vpn
+
+volumes:
+  vpnconf:
