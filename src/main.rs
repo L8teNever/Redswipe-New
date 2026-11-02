@@ -110,6 +110,7 @@ async fn main() {
         .route("/api/media", get(media))
         .route("/api/opt", get(optimize::handler))
         .route("/api/scan", get(scan::handler))
+        .route("/api/scan/focus", post(scan::focus).layer(DefaultBodyLimit::max(16 * 1024)))
         .route("/api/vote", post(actions::vote).layer(DefaultBodyLimit::max(1024)))
         .route("/api/follow", post(actions::follow).layer(DefaultBodyLimit::max(1024)))
         .route(

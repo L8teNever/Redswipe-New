@@ -1,5 +1,6 @@
 """NudeNet-Scanner: Bilder und Videos (jeder einzelne Frame) auf freigelegte Körperteile prüfen.
 Bekommt nur Pfade im gemeinsamen Cache-Volume, gibt eine zusammengefasste JSON-Antwort zurück."""
+import asyncio
 import json
 import os
 import queue
@@ -9,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import onnxruntime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from nudenet import NudeDetector
 from pydantic import BaseModel
@@ -232,6 +233,10 @@ def refine_faces(poses, faces):
     return out
 
 
+class ScanCancelled(Exception):
+    """Der Aufrufer hat die Verbindung geschlossen (Beitrag zu weit zurück): Scan abbrechen."""
+
+
 class Req(BaseModel):
     path: str
     kind: str  # "image" | "video"
@@ -308,7 +313,7 @@ def probe(path):
     return int(s["width"]), int(s["height"]), fps or 30.0, float((j.get("format") or {}).get("duration") or 0)
 
 
-def scan_video(det, path):
+def scan_video(det, path, cancel=None):
     w, h, fps, duration = probe(path)
     if w > MAX_WIDTH:
         h = int(h * MAX_WIDTH / w) // 2 * 2
@@ -384,6 +389,8 @@ def scan_video(det, path):
 
     try:
         while True:
+            if cancel is not None and cancel.is_set():
+                raise ScanCancelled()
             buf = proc.stdout.read(size)
             if len(buf) < size:
                 break
@@ -425,15 +432,17 @@ def scan_video(det, path):
     return res
 
 
-def work(req: Req):
+def work(req: Req, cancel=None):
     path = os.path.realpath(req.path)
     if not path.startswith(ROOT + "/"):
         raise HTTPException(400, "Pfad nicht erlaubt")
     det = pool.get()
     try:
-        return scan_image(det, path) if req.kind == "image" else scan_video(det, path)
+        return scan_image(det, path) if req.kind == "image" else scan_video(det, path, cancel)
     except HTTPException:
         raise
+    except ScanCancelled:
+        raise HTTPException(499, "Abgebrochen")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"Scan fehlgeschlagen: {e}")
     finally:
@@ -441,7 +450,20 @@ def work(req: Req):
 
 
 @app.post("/scan")
-async def scan(req: Req):
+async def scan(req: Req, request: Request):
     if req.kind not in ("image", "video"):
         raise HTTPException(400, "Unbekannte Art")
-    return await run_in_threadpool(work, req)
+    cancel = threading.Event()
+
+    async def watch():
+        while True:
+            await asyncio.sleep(0.5)
+            if await request.is_disconnected():
+                cancel.set()
+                return
+
+    task = asyncio.create_task(watch())
+    try:
+        return await run_in_threadpool(work, req, cancel)
+    finally:
+        task.cancel()

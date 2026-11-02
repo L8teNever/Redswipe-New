@@ -584,6 +584,8 @@
     slide._scanBusy = true;
     try {
       for (let i = 0; i < 600 && slide.isConnected; i++) {
+        // Zu weit zurück (nicht mehr in den nächsten 3 Beiträgen): abbrechen, der Server stoppt den Scan ebenfalls.
+        if (!scanWin.has(slide.closest('.post'))) { slide._scanP = 99; return; }
         let r;
         try {
           const res = await fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}&p=${slide._scanP}`);
@@ -610,9 +612,17 @@
 
   // Sobald ein Beitrag sichtbar ist, werden er und die nächsten 3 vorgeholt: Der Server scannt sie bevorzugt,
   // und wenn du dort ankommst, ist alles schon da.
+  let scanWin = new Set();
   function scanAhead(sec) {
+    scanWin = new Set();
     let s = sec;
-    for (let p = 0; p <= 3 && s && s.classList.contains('post'); p++, s = s.nextElementSibling) scanPost(s, p);
+    for (let p = 0; p <= 3 && s && s.classList.contains('post'); p++, s = s.nextElementSibling) scanWin.add(s);
+    // Position an den Server melden: Aufträge außerhalb dieser Beiträge werden zurückgestuft bzw. abgebrochen.
+    const items = [];
+    scanWin.forEach((x) => (x._media || []).forEach((m) => { if (m.src && (m.type === 'image' || m.type === 'video')) items.push([m.type, m.src]); }));
+    fetch('/api/scan/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) }).catch(() => {});
+    let p = 0;
+    scanWin.forEach((x) => { scanPost(x, p++); });
   }
 
   function onVisible(sec) {

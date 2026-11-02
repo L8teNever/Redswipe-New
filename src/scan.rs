@@ -3,7 +3,7 @@
 //! Cache-Ordner; das Frontend holt sie nur ab, wenn "Anzeigen" an ist.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::atomic::{AtomicU64, Ordering},
     env,
     hash::{DefaultHasher, Hash, Hasher},
@@ -35,6 +35,12 @@ fn scanner() -> Option<String> {
 fn inflight() -> &'static Mutex<HashSet<String>> {
     static S: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Laufende Aufträge, die wegen deiner Position gestartet wurden (prio < IDLE): Schlüssel -> Abbruch-Signal.
+fn running() -> &'static Mutex<HashMap<String, Arc<Notify>>> {
+    static S: OnceLock<Mutex<HashMap<String, Arc<Notify>>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Wartende Aufträge. Kleinere `prio` kommt zuerst: 0 = der Beitrag, den du gerade siehst, 1-3 = die
@@ -147,12 +153,27 @@ fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32) {
 }
 
 async fn work(st: &AppState, job: Job) {
-    let Job { k, kind, raw, .. } = job;
+    let Job { k, kind, raw, prio, .. } = job;
+    let cancel = Arc::new(Notify::new());
+    if prio < IDLE {
+        running().lock().await.insert(k.clone(), cancel.clone());
+    }
     let Ok(url) = Url::parse(&raw) else {
         inflight().lock().await.remove(&k);
         return;
     };
-    let res = run(st, kind, &url, &k).await;
+    // Abbruch: wird der Auftrag verworfen, schließt reqwest die Verbindung, und der Scanner hört auf.
+    let res = tokio::select! {
+        r = run(st, kind, &url, &k) => Some(r),
+        _ = cancel.notified() => None,
+    };
+    running().lock().await.remove(&k);
+    let Some(res) = res else {
+        let _ = tokio::fs::remove_file(optimize::cache_dir().join(format!("{k}.scan.src"))).await;
+        eprintln!("Scan abgebrochen ({kind} {raw}): zu weit zurück");
+        inflight().lock().await.remove(&k);
+        return;
+    };
     match res {
         Ok(v) => {
             let _ = tokio::fs::create_dir_all(optimize::cache_dir()).await;
@@ -238,4 +259,36 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<ScanQuery>) -> 
     // Noch nichts da: sicherstellen, dass der Scan läuft.
     enqueue(st, kind, raw.to_string(), q.p.map_or(IDLE, |p| p.min(IDLE)));
     Json(json!({ "status": "pending" })).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct Focus {
+    /// Medien (Art + URL) von Beitrag 0 bis 3, also die, die gerade wichtig sind.
+    items: Vec<(String, String)>,
+}
+
+/// Position melden: Alles, was priorisiert war und nicht mehr in den nächsten 3 Beiträgen liegt, wird
+/// zurückgestuft (wartend) oder abgebrochen (laufend).
+pub async fn focus(Json(f): Json<Focus>) -> Response {
+    let keep: HashSet<String> = f
+        .items
+        .iter()
+        .take(64)
+        .filter_map(|(kind, url)| match kind.as_str() {
+            "image" | "video" => Some(key(kind, url)),
+            _ => None,
+        })
+        .collect();
+    {
+        let mut jobs = queue().jobs.lock().await;
+        for j in jobs.iter_mut().filter(|j| j.prio < IDLE && !keep.contains(&j.k)) {
+            j.prio = IDLE;
+        }
+    }
+    for (k, n) in running().lock().await.iter() {
+        if !keep.contains(k) {
+            n.notify_one();
+        }
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
