@@ -5,6 +5,7 @@ import os
 import queue
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import onnxruntime
@@ -16,6 +17,9 @@ from pydantic import BaseModel
 MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.25"))
 N_DET = int(os.environ.get("DETECTORS", "2"))
 ORT_THREADS = int(os.environ.get("ORT_THREADS", "3"))
+POSE_ON = os.environ.get("POSE", "1") != "0"
+POSE_MAX = int(os.environ.get("POSE_MAX", "3"))
+POSE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_landmarker.task")
 MAX_WIDTH = 640  # Frames vor der Erkennung verkleinern (das Modell rechnet ohnehin mit 320 px)
 BATCH = 8
 ROOT = "/cache"
@@ -37,6 +41,44 @@ for _ in range(N_DET):
     pool.put(NudeDetector())
 
 app = FastAPI()
+
+
+class Pose:
+    """MediaPipe Pose Landmarker. Für Videos im VIDEO-Modus (verfolgt Personen von Frame zu Frame),
+    für Bilder im IMAGE-Modus. Pro Auftrag eine eigene Instanz."""
+
+    def __init__(self, video):
+        import mediapipe as mp
+        from mediapipe.tasks import python as mpt
+        from mediapipe.tasks.python import vision
+
+        self.mp = mp
+        self.video = video
+        self.last_ts = -1
+        opts = vision.PoseLandmarkerOptions(
+            base_options=mpt.BaseOptions(model_asset_path=POSE_MODEL),
+            running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
+            num_poses=POSE_MAX,
+        )
+        self.lm = vision.PoseLandmarker.create_from_options(opts)
+
+    def run(self, bgr, t=0.0):
+        """Liefert pro erkannter Person 33 Punkte [x, y, Sichtbarkeit] (0..1)."""
+        rgb = np.ascontiguousarray(bgr[:, :, ::-1])
+        img = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb)
+        if self.video:
+            ts = max(int(t * 1000), self.last_ts + 1)
+            self.last_ts = ts
+            res = self.lm.detect_for_video(img, ts)
+        else:
+            res = self.lm.detect(img)
+        return [[[round(p.x, 3), round(p.y, 3), round(p.visibility or 0.0, 2)] for p in person] for person in res.pose_landmarks]
+
+    def close(self):
+        try:
+            self.lm.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class Req(BaseModel):
@@ -76,7 +118,14 @@ def scan_image(det, path):
     res = det.detect(img)
     items = [norm(d, w, h) for d in res if d["score"] >= MIN_SCORE]
     items.sort(key=lambda d: -d["score"])
-    return {"kind": "image", "width": w, "height": h, "detections": items}
+    out = {"kind": "image", "width": w, "height": h, "detections": items}
+    if POSE_ON:
+        pose = Pose(False)
+        try:
+            out["poses"] = pose.run(img)
+        finally:
+            pose.close()
+    return out
 
 
 def probe(path):
@@ -107,13 +156,20 @@ def scan_video(det, path):
     labels = {}
     timeline = []  # pro Frame mit Treffern: [Zeit, [[Label-Nr, Score, x, y, b, h], ...]]
     names = []
+    pose_tl = []  # pro Frame mit Personen: [Zeit, [Person(33 x [x, y, Sichtbarkeit]), ...]]
+    pose = Pose(True) if POSE_ON else None
+    pose_ex = ThreadPoolExecutor(1) if pose else None  # läuft parallel zu NudeNet, bleibt in Frame-Reihenfolge
     total = 0
     batch, idx = [], []
+
+    def pose_batch(frames, ids):
+        return [(i / fps, pose.run(f, i / fps)) for f, i in zip(frames, ids)]
 
     def flush():
         nonlocal batch, idx
         if not batch:
             return
+        fut = pose_ex.submit(pose_batch, batch, idx) if pose else None
         for i, dets in zip(idx, detect_many(det, batch)):
             t = i / fps
             seen = set()
@@ -134,6 +190,10 @@ def scan_video(det, path):
                 e["last"] = t
             if row:
                 timeline.append([round(t, 3), row])
+        if fut:
+            for t, people in fut.result():
+                if people:
+                    pose_tl.append([round(t, 3), people])
         batch, idx = [], []
 
     try:
@@ -151,6 +211,9 @@ def scan_video(det, path):
         proc.stdout.close()
         proc.kill()
         proc.wait()
+        if pose:
+            pose_ex.shutdown(wait=True)
+            pose.close()
     if total == 0:
         raise ValueError("Keine Frames im Video")
     out = []
@@ -158,9 +221,13 @@ def scan_video(det, path):
         out.append({"label": e["label"], "score": round(e["max"], 3), "frames": e["frames"], "share": round(e["frames"] / total, 4),
                     "first": round(e["first"], 2), "last": round(e["last"], 2), "at": round(e["at"], 2), "box": e["box"]})
     out.sort(key=lambda d: -d["score"])
-    return {"kind": "video", "width": w, "height": h, "frames": total, "fps": round(fps, 3),
+    res = {"kind": "video", "width": w, "height": h, "frames": total, "fps": round(fps, 3),
             "duration": round(duration or total / fps, 2), "detections": out,
             "names": names, "timeline": timeline}
+    if pose:
+        res["pose_timeline"] = pose_tl
+        res["pose_frames"] = len(pose_tl)
+    return res
 
 
 def work(req: Req):
