@@ -1,0 +1,13 @@
+services:
+  reddit-swipe:
+    image: ghcr.io/l8tenever/reddit-swipe:latest
+    pull_policy: always
+    container_name: reddit-swipe
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      # Optional, falls Reddit den Server blockt:
+      # HTTPS_PROXY: "http://proxy:3128"
+      # USER_AGENT: "Mozilla/5.0 ..."

@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Reddit Swipe</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+
+  /* Oben fest: Eingabe */
+  #topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; flex-wrap: wrap;
+    gap: 8px; padding: 10px; background: rgba(0,0,0,.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #topbar form { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin: 0; }
+  #q { flex: 1 1 220px; min-width: 0; font-size: 16px; padding: 9px 10px; border-radius: 8px;
+    border: 1px solid #444; background: #111; color: #fff; }
+  #topbar select, #topbar button { font-size: 16px; padding: 9px 10px; border-radius: 8px;
+    border: 1px solid #444; background: #222; color: #fff; }
+  #topbar button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
+  #topbar select[hidden] { display: none; }
+
+  /* Feed: vertikales Wischen mit nativem Scroll-Snapping */
+  #feed { position: fixed; inset: 0; height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory;
+    overscroll-behavior: contain; scrollbar-width: none; }
+  #feed::-webkit-scrollbar { display: none; }
+
+  .post { height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; position: relative; overflow: hidden; background: #000; }
+  .carousel { display: flex; height: 100%; overflow-x: scroll; scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain; scrollbar-width: none; }
+  .carousel::-webkit-scrollbar { display: none; }
+  .slide { flex: 0 0 100%; scroll-snap-align: center; height: 100%; position: relative; display: flex;
+    align-items: center; justify-content: center; }
+  .media { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .nsfw .media { filter: blur(40px); }
+
+  .progress { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; z-index: 4; pointer-events: none; background: rgba(255,255,255,.15); }
+  .progress .bar { height: 100%; width: 0; background: #ff4500; }
+
+  .info { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 56px 14px 26px; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(0,0,0,0), #000 85%); }
+  .ititle { font-size: 16px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 6px; }
+  .imeta { font-size: 13px; color: #bbb; margin-bottom: 6px; }
+  .info a { color: #ff8a5c; font-size: 13px; pointer-events: auto; }
+
+  .dots { position: absolute; left: 0; right: 0; bottom: 6px; z-index: 4; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+  .dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.35); }
+  .dots span.on { background: #fff; }
+  .counter { position: absolute; top: 64px; right: 12px; z-index: 4; font-size: 13px; padding: 3px 8px; border-radius: 10px;
+    background: rgba(0,0,0,.55); pointer-events: none; }
+
+  .arrow { display: none; position: absolute; top: 50%; transform: translateY(-50%); z-index: 4; width: 42px; height: 42px;
+    border-radius: 50%; border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 22px; align-items: center; justify-content: center; }
+  .arrow.l { left: 8px; } .arrow.r { right: 8px; }
+  @media (hover: hover) { .arrow { display: flex; } }
+
+  .sound { position: absolute; right: 14px; bottom: 150px; z-index: 5; width: 46px; height: 46px; border-radius: 50%;
+    border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 20px; }
+  .sound[hidden] { display: none; }
+
+  .pauseicon { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 64px; opacity: 0;
+    transition: opacity .3s; pointer-events: none; z-index: 2; text-shadow: 0 0 12px rgba(0,0,0,.6); }
+  .pauseicon.show { opacity: .85; }
+
+  .nsfw-btn { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; font-size: 16px;
+    padding: 12px 20px; border-radius: 24px; border: 1px solid #fff; background: rgba(0,0,0,.6); color: #fff; }
+
+  /* Zustände (Hinweis, Laden, Fehler, leer) */
+  .state { height: 100dvh; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; padding: 24px; text-align: center; color: #ccc; }
+  .state p { margin: 0; max-width: 420px; line-height: 1.5; }
+  .state .err { color: #ff6b6b; }
+  .state button { font-size: 16px; padding: 10px 16px; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top-color: #ff4500; border-radius: 50%;
+    animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <form id="form" autocomplete="off">
+    <input id="q" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
+      placeholder="Reddit-Link einfügen, z. B. https://www.reddit.com/r/aww/">
+    <button class="primary" type="submit">Laden</button>
+    <select id="sort" aria-label="Sortierung">
+      <option value="hot">Hot</option>
+      <option value="new">Neu</option>
+      <option value="top">Top</option>
+      <option value="rising">Rising</option>
+      <option value="best">Best</option>
+    </select>
+    <select id="t" aria-label="Zeitraum" hidden>
+      <option value="hour">Stunde</option>
+      <option value="day">Tag</option>
+      <option value="week">Woche</option>
+      <option value="month">Monat</option>
+      <option value="year">Jahr</option>
+      <option value="all">Alle</option>
+    </select>
+  </form>
+</div>
+
+<div id="feed">
+  <div id="hint" class="state">
+    <p>Füge oben einen Subreddit-Link ein und wische dich durch die Beiträge.</p>
+    <div class="examples">
+      <button class="ex" type="button" data-q="https://www.reddit.com/r/aww/">r/aww</button>
+      <button class="ex" type="button" data-q="https://www.reddit.com/r/EarthPorn/">r/EarthPorn</button>
+      <button class="ex" type="button" data-q="https://www.reddit.com/r/interestingasfuck/">r/interestingasfuck</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (sel) => document.querySelector(sel);
+  const form = $('#form');
+  const input = $('#q');
+  const sortSel = $('#sort');
+  const timeSel = $('#t');
+  const feed = $('#feed');
+  const enc = encodeURIComponent;
+
+  let soundOn = false;     // globaler Ton-Schalter für alle Videos
+  let token = 0;           // steigt bei jedem neuen Laden, alte Antworten werden verworfen
+  let busy = false;        // genau ein Nachladen gleichzeitig
+  let io = null;           // IntersectionObserver für die Beiträge
+  let after = null;        // Cursor für die nächste Seite
+  let cur = { q: '', sort: 'hot', t: 'day' };
+  const seen = new Set();
+
+  // ---------- Speicher (localStorage, Fehler werden ignoriert) ----------
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignorieren */ } },
+  };
+
+  // ---------- Hilfsfunktionen ----------
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function addState(node) {
+    feed.appendChild(node);
+    return node;
+  }
+
+  function clearStates() {
+    feed.querySelectorAll('.state').forEach((n) => n.remove());
+  }
+
+  function showError(msg, my) {
+    const box = el('div', 'state');
+    box.appendChild(el('p', 'err', msg));
+    const btn = el('button', '', 'Nochmal versuchen');
+    btn.type = 'button';
+    btn.addEventListener('click', () => { if (my === token) { box.remove(); runLoad(token); } });
+    box.appendChild(btn);
+    addState(box);
+  }
+
+  function showEmpty(withMore) {
+    const box = el('div', 'state');
+    box.appendChild(el('p', '', 'In diesem Subreddit gibt es auf dieser Seite keine Bilder oder Videos.'));
+    if (withMore && after) {
+      const btn = el('button', '', 'Weiter laden');
+      btn.type = 'button';
+      btn.addEventListener('click', () => { box.remove(); runLoad(token); });
+      box.appendChild(btn);
+    }
+    addState(box);
+  }
+
+  function activeIndex(car) { return Math.round(car.scrollLeft / car.clientWidth) || 0; }
+
+  function activeVideo(sec) {
+    const car = sec.querySelector('.carousel');
+    const slide = car.children[activeIndex(car)];
+    return slide ? slide.querySelector('video') : null;
+  }
+
+  function fmt(n) { return Number(n || 0).toLocaleString('de-DE'); }
+
+  // ---------- Audio (Reddit-Videos haben den Ton in einer eigenen Datei) ----------
+  function ensureAudio(v) {
+    const st = v._rs;
+    if (st.audio || st.noAudio || st.cands.length === 0) return st.audio;
+    const a = new Audio();
+    a.preload = 'auto';
+    a.muted = !soundOn;
+    let i = 0;
+    const next = () => {
+      if (i < st.cands.length) {
+        a.src = st.cands[i++];
+      } else {
+        // Kein Ton verfügbar: Lautsprecher-Button für dieses Video ausblenden
+        st.noAudio = true;
+        st.audio = null;
+        a.onerror = null;
+        if (st.sec) updateSoundBtn(st.sec);
+      }
+    };
+    a.onerror = next;
+    st.audio = a;
+    next();
+    return a;
+  }
+
+  function playVideo(v) {
+    if (!v) return;
+    ensureAudio(v);
+    if (v._rs.cands.length === 0) v.muted = !soundOn;
+    v.play().catch(() => {});
+  }
+
+  function applySound() {
+    document.querySelectorAll('video').forEach((v) => {
+      const st = v._rs;
+      if (!st) return;
+      v.muted = st.cands.length > 0 ? true : !soundOn;
+      if (st.audio) st.audio.muted = !soundOn;
+    });
+    // Wenn der Ton jetzt an ist, laufende Tonspuren nachstarten (Nutzergeste)
+    document.querySelectorAll('.post[data-visible="1"]').forEach((sec) => {
+      const v = activeVideo(sec);
+      if (soundOn && v && v._rs.audio && !v.paused) v._rs.audio.play().catch(() => {});
+    });
+    document.querySelectorAll('.sound').forEach((b) => { b.textContent = soundOn ? '🔊' : '🔇'; });
+  }
+
+  function updateSoundBtn(sec) {
+    const btn = sec._sound;
+    if (!btn) return;
+    const v = activeVideo(sec);
+    if (!v) { btn.hidden = true; return; }
+    const st = v._rs;
+    btn.hidden = st.cands.length > 0 && st.noAudio;
+    btn.textContent = soundOn ? '🔊' : '🔇';
+  }
+
+  function updatePreload(sec) {
+    const next = sec.nextElementSibling;
+    feed.querySelectorAll('.post').forEach((p) => {
+      const mode = (p === sec || p === next) ? 'auto' : 'none';
+      p.querySelectorAll('video').forEach((v) => { v.preload = mode; });
+    });
+  }
+
+  // ---------- Sichtbarkeit: Video-Logik ----------
+  function onVisible(sec) {
+    sec.dataset.visible = '1';
+    updatePreload(sec);
+    const v = activeVideo(sec);
+    if (v) playVideo(v);
+    updateSoundBtn(sec);
+  }
+
+  function onHidden(sec) {
+    sec.dataset.visible = '0';
+    sec.querySelectorAll('video').forEach((v) => {
+      v.pause();
+      v.currentTime = 0;
+      const a = v._rs.audio;
+      if (a) { a.pause(); a.currentTime = 0; }
+    });
+    if (sec._bar) sec._bar.style.width = '0%';
+  }
+
+  function resetObserver() {
+    if (io) io.disconnect();
+    io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) onVisible(e.target);
+        else onHidden(e.target);
+      }
+    }, { root: feed, threshold: 0.6 });
+  }
+
+  // ---------- Karussell ----------
+  function onCarouselScroll(car, sec) {
+    const idx = activeIndex(car);
+    if (car.dataset.idx === String(idx)) return;
+    car.dataset.idx = String(idx);
+
+    // Alle Videos des Karussells pausieren, dann das neue im Bild abspielen
+    car.querySelectorAll('video').forEach((v) => { if (!v.paused) v.pause(); });
+    const v = activeVideo(sec);
+    if (sec._bar) sec._bar.style.width = v && v.duration ? (v.currentTime / v.duration * 100) + '%' : '0%';
+
+    if (sec._dots) {
+      sec._dots.querySelectorAll('span').forEach((d, i) => d.classList.toggle('on', i === idx));
+    }
+    if (sec._counter) sec._counter.textContent = `${idx + 1}/${car.children.length}`;
+
+    if (sec.dataset.visible === '1') playVideo(v);
+    updatePreload(sec);
+    updateSoundBtn(sec);
+  }
+
+  // ---------- Beitrag bauen ----------
+  function buildSlide(sec, m, index, eager) {
+    const slide = el('div', 'slide');
+    if (m.type === 'video') {
+      const v = document.createElement('video');
+      v.className = 'media';
+      v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', '');
+      v.loop = true;
+      v.muted = true;
+      v.preload = 'none';
+      v.src = m.url;
+      v._rs = { cands: m.audio || [], audio: null, noAudio: false, sec, index, icon: null };
+      v.muted = m.audio && m.audio.length > 0 ? true : !soundOn;
+
+      // Reddit-Ton synchronisieren
+      v.onplay = () => { const a = v._rs.audio; if (a) a.play().catch(() => {}); };
+      v.onpause = () => { const a = v._rs.audio; if (a) a.pause(); };
+      v.onseeked = () => { const a = v._rs.audio; if (a) a.currentTime = v.currentTime; };
+      v.ontimeupdate = () => {
+        const a = v._rs.audio;
+        if (a && Math.abs(a.currentTime - v.currentTime) > 0.3) a.currentTime = v.currentTime;
+        if (sec._bar && v.duration && isFinite(v.duration) && activeVideo(sec) === v) {
+          sec._bar.style.width = (v.currentTime / v.duration * 100) + '%';
+        }
+      };
+      v.onwaiting = () => { const a = v._rs.audio; if (a) a.pause(); };
+      v.onplaying = () => { const a = v._rs.audio; if (a) a.play().catch(() => {}); };
+
+      // Tippen = Pause/Play
+      const icon = el('div', 'pauseicon', '⏸');
+      v._rs.icon = icon;
+      let hideTimer = null;
+      const flash = (sym) => {
+        icon.textContent = sym;
+        icon.classList.add('show');
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => icon.classList.remove('show'), 600);
+      };
+      v.addEventListener('click', () => {
+        if (v.paused) { playVideo(v); flash('▶'); }
+        else { v.pause(); flash('⏸'); }
+      });
+      slide.appendChild(v);
+      slide.appendChild(icon);
+    } else {
+      const img = document.createElement('img');
+      img.className = 'media';
+      img.alt = sec._title || '';
+      img.decoding = 'async';
+      img.loading = eager ? 'eager' : 'lazy';
+      img.src = m.url;
+      slide.appendChild(img);
+    }
+    return slide;
+  }
+
+  function appendPost(p) {
+    const eager = feed.querySelectorAll('.post').length < 2;
+    const sec = el('section', 'post');
+    sec.dataset.visible = '0';
+    sec._title = p.title;
+
+    const car = el('div', 'carousel');
+    car.dataset.idx = '0';
+    p.media.forEach((m, i) => car.appendChild(buildSlide(sec, m, i, eager)));
+    sec.appendChild(car);
+
+    // Fortschrittsbalken
+    const prog = el('div', 'progress');
+    const bar = el('div', 'bar');
+    prog.appendChild(bar);
+    sec.appendChild(prog);
+    sec._bar = bar;
+
+    // Mehrere Medien: Punkte, Zähler, Pfeile
+    if (p.media.length > 1) {
+      const dots = el('div', 'dots');
+      p.media.forEach((_, i) => dots.appendChild(el('span', i === 0 ? 'on' : '')));
+      sec.appendChild(dots);
+      sec._dots = dots;
+
+      const counter = el('div', 'counter', `1/${p.media.length}`);
+      sec.appendChild(counter);
+      sec._counter = counter;
+
+      [['l', -1], ['r', 1]].forEach(([side, dir]) => {
+        const b = el('button', 'arrow ' + side, dir < 0 ? '‹' : '›');
+        b.type = 'button';
+        b.setAttribute('aria-label', dir < 0 ? 'Zurück' : 'Weiter');
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          car.scrollBy({ left: dir * car.clientWidth, behavior: 'smooth' });
+        });
+        sec.appendChild(b);
+      });
+    }
+
+    // Ton-Button (nur bei Beiträgen mit Video)
+    if (p.media.some((m) => m.type === 'video')) {
+      const sb = el('button', 'sound', soundOn ? '🔊' : '🔇');
+      sb.type = 'button';
+      sb.setAttribute('aria-label', 'Ton an/aus');
+      sb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        soundOn = !soundOn;
+        applySound();
+      });
+      sec.appendChild(sb);
+      sec._sound = sb;
+    }
+
+    // Info-Leiste
+    const info = el('div', 'info');
+    info.appendChild(el('div', 'ititle', p.title));
+    info.appendChild(el('div', 'imeta',
+      `r/${p.subreddit} · u/${p.author} · ▲ ${fmt(p.score)} · 💬 ${fmt(p.comments)}`));
+    const link = el('a', '', 'Auf Reddit öffnen');
+    link.href = p.permalink;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    info.appendChild(link);
+    sec.appendChild(info);
+
+    // NSFW: verschwommen, bis der Nutzer tippt
+    if (p.nsfw) {
+      sec.classList.add('nsfw');
+      const nb = el('button', 'nsfw-btn', 'NSFW anzeigen');
+      nb.type = 'button';
+      nb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        sec.classList.remove('nsfw');
+        nb.remove();
+      });
+      sec.appendChild(nb);
+    }
+
+    car.addEventListener('scroll', () => onCarouselScroll(car, sec), { passive: true });
+    feed.appendChild(sec);
+    io.observe(sec);
+  }
+
+  // ---------- Laden ----------
+  async function fetchPage(my) {
+    clearStates();
+    const spin = addState(el('div', 'state'));
+    spin.appendChild(el('div', 'spinner'));
+    spin.setAttribute('aria-label', 'Lädt');
+    try {
+      let url = `/api/feed?q=${enc(cur.q)}&sort=${enc(cur.sort)}&t=${enc(cur.t)}`;
+      if (after) url += `&after=${enc(after)}`;
+      const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      if (my !== token) return null;
+      spin.remove();
+      if (res.status !== 200) {
+        return { error: data.error || `Fehler (HTTP ${res.status})` };
+      }
+      after = data.after || null;
+      let added = 0;
+      for (const p of data.posts || []) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        appendPost(p);
+        added++;
+      }
+      return { added, more: !!after };
+    } catch {
+      if (my !== token) return null;
+      spin.remove();
+      return { error: 'Netzwerkfehler – bitte erneut versuchen.' };
+    }
+  }
+
+  // Lädt Seiten, bis Beiträge mit Medien da sind (höchstens 5 leere Seiten hintereinander)
+  async function runLoad(my) {
+    if (busy) return;
+    busy = true;
+    let empties = 0;
+    try {
+      for (;;) {
+        const r = await fetchPage(my);
+        if (!r || my !== token) return;
+        if (r.error) { showError(r.error, my); return; }
+        if (r.added > 0) return;
+        if (!r.more) break;
+        if (++empties >= 5) break;
+      }
+      if (my === token && !feed.querySelector('.post')) showEmpty(!!after);
+    } finally {
+      if (my === token) busy = false;
+    }
+  }
+
+  function load() {
+    const q = input.value.trim();
+    if (!q) { input.focus(); return; }
+    cur = { q, sort: sortSel.value, t: timeSel.value };
+    token++;
+    busy = false;
+    after = null;
+    seen.clear();
+    feed.replaceChildren();
+    feed.scrollTop = 0;
+    resetObserver();
+
+    store.set('rs-q', q);
+    store.set('rs-sort', cur.sort);
+    store.set('rs-t', cur.t);
+    const params = new URLSearchParams({ q, sort: cur.sort });
+    if (cur.sort === 'top') params.set('t', cur.t);
+    history.replaceState(null, '', '?' + params.toString());
+
+    runLoad(token);
+  }
+
+  // Endlos-Scrollen: nahe an den letzten 5 Beiträgen nachladen
+  feed.addEventListener('scroll', () => {
+    if (!after || busy) return;
+    const posts = feed.querySelectorAll('.post');
+    if (!posts.length) return;
+    const idx = Math.round(feed.scrollTop / feed.clientHeight);
+    if (idx >= posts.length - 5) runLoad(token);
+  }, { passive: true });
+
+  form.addEventListener('submit', (e) => { e.preventDefault(); load(); });
+
+  sortSel.addEventListener('change', () => {
+    timeSel.hidden = sortSel.value !== 'top';
+    store.set('rs-sort', sortSel.value);
+    if (input.value.trim()) load();
+  });
+  timeSel.addEventListener('change', () => {
+    store.set('rs-t', timeSel.value);
+    if (input.value.trim()) load();
+  });
+
+  feed.addEventListener('click', (e) => {
+    const b = e.target.closest('button.ex');
+    if (!b) return;
+    input.value = b.dataset.q;
+    load();
+  });
+
+  // Tastatur (nur wenn kein Eingabefeld den Fokus hat)
+  document.addEventListener('keydown', (e) => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(tag)) return;
+    let dir = 0;
+    if (e.key === 'ArrowDown' || e.key === 'j' || e.key === ' ') dir = 1;
+    else if (e.key === 'ArrowUp' || e.key === 'k') dir = -1;
+    if (!dir) return;
+    e.preventDefault();
+    feed.scrollBy({ top: dir * window.innerHeight, behavior: 'smooth' });
+  });
+
+  // ---------- Start ----------
+  const savedSort = store.get('rs-sort');
+  const savedT = store.get('rs-t');
+  if (savedSort && [...sortSel.options].some((o) => o.value === savedSort)) sortSel.value = savedSort;
+  if (savedT && [...timeSel.options].some((o) => o.value === savedT)) timeSel.value = savedT;
+  timeSel.hidden = sortSel.value !== 'top';
+  input.value = store.get('rs-q') || '';
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('sort') && [...sortSel.options].some((o) => o.value === params.get('sort'))) {
+    sortSel.value = params.get('sort');
+    timeSel.hidden = sortSel.value !== 'top';
+  }
+  if (params.get('t') && [...timeSel.options].some((o) => o.value === params.get('t'))) {
+    timeSel.value = params.get('t');
+  }
+  if (params.get('q')) {
+    input.value = params.get('q');
+    load();
+  }
+})();
+</script>
+</body>
+</html>
