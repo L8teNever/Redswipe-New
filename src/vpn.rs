@@ -178,7 +178,7 @@ fn write_private(dir: &Path, name: &str, content: &str) -> std::io::Result<()> {
 }
 
 /// Nur Anfragen, die über Cloudflare Access kamen und vom eigenen Frontend stammen.
-fn authorized(h: &HeaderMap) -> Result<(), Response> {
+pub fn authorized(h: &HeaderMap) -> Result<(), Response> {
     if h.get("x-redswipe").is_none() {
         return Err(err(StatusCode::FORBIDDEN, "Anfrage nicht erlaubt."));
     }

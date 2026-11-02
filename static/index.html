@@ -34,6 +34,8 @@
   #vpn button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
   #vpn button:disabled { opacity: .5; }
   #vpn .ok { color: #6fdc8c; } #vpn .bad { color: #ff7b72; }
+  #vpn h3 { margin: 16px 0 4px; font-size: 15px; }
+  #vpn textarea { width: 100%; font-size: 14px; padding: 8px; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; }
   #vpn input[type=file] { color: #ccc; max-width: 100%; }
 
   /* Feed: vertikales Wischen mit nativem Scroll-Snapping */
@@ -122,13 +124,26 @@
 
 <div id="vpn" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
   <div class="card">
-    <h2 id="vpnTitle">VPN (WireGuard)</h2>
+    <h2 id="vpnTitle">Einstellungen</h2>
+    <h3>VPN (WireGuard)</h3>
     <p id="vpnState">Status wird geladen …</p>
     <p>Lade die komplette WireGuard-<code>.conf</code> hoch (z. B. aus der Fritz!Box). Die Schlüssel werden nur auf dem Server gespeichert.</p>
     <input id="vpnFile" type="file" accept=".conf,text/plain" aria-label="WireGuard-Config auswählen">
     <p id="vpnMsg" role="status"></p>
     <div class="row">
       <button id="vpnSend" class="primary" type="button" disabled>Hochladen</button>
+    </div>
+    <h3>Reddit-Login</h3>
+    <p id="rdState">Status wird geladen …</p>
+    <p>Reddit gibt anonym keine Beiträge mehr heraus. Füge den Cookie deines Reddit-Accounts ein
+      (am PC auf reddit.com: F12 → Application/Speicher → Cookies → <code>reddit_session</code>, als
+      <code>reddit_session=WERT</code>). Er gilt wie ein Passwort; nimm am besten einen Zweit-Account.</p>
+    <textarea id="rdCookie" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"
+      aria-label="Reddit-Cookie" placeholder="reddit_session=…"></textarea>
+    <p id="rdMsg" role="status"></p>
+    <div class="row">
+      <button id="rdSave" class="primary" type="button">Login speichern</button>
+      <button id="rdOut" type="button">Abmelden</button>
       <button id="vpnClose" type="button">Schließen</button>
     </div>
   </div>
@@ -176,7 +191,28 @@
     } catch (e) { setMsg(vpnState, 'Status nicht erreichbar.', 'bad'); }
   }
 
-  $('#vpnBtn').addEventListener('click', () => { vpn.hidden = false; setMsg(vpnMsg, ''); vpnRefresh(); });
+  // ---- Reddit-Login per Cookie ----
+  const rdState = $('#rdState'), rdMsg = $('#rdMsg'), rdCookie = $('#rdCookie');
+  async function rdRefresh() {
+    try {
+      const d = await (await fetch('/api/login', { headers: vpnHeaders })).json();
+      if (d.loggedIn) setMsg(rdState, 'Angemeldet (Cookie gespeichert).', 'ok');
+      else setMsg(rdState, d.error || 'Nicht angemeldet.', 'bad');
+    } catch (e) { setMsg(rdState, 'Status nicht erreichbar.', 'bad'); }
+  }
+  async function rdCall(method, body) {
+    setMsg(rdMsg, 'Einen Moment …');
+    try {
+      const r = await fetch('/api/login', { method, headers: vpnHeaders, body });
+      const d = await r.json();
+      setMsg(rdMsg, d.message || d.error || 'Fehler.', r.ok ? 'ok' : 'bad');
+      if (r.ok) { rdCookie.value = ''; rdRefresh(); }
+    } catch (e) { setMsg(rdMsg, 'Server nicht erreichbar.', 'bad'); }
+  }
+  $('#rdSave').addEventListener('click', () => rdCall('POST', rdCookie.value));
+  $('#rdOut').addEventListener('click', () => rdCall('DELETE'));
+
+  $('#vpnBtn').addEventListener('click', () => { vpn.hidden = false; setMsg(vpnMsg, ''); setMsg(rdMsg, ''); vpnRefresh(); rdRefresh(); });
   $('#vpnClose').addEventListener('click', () => { vpn.hidden = true; });
   vpn.addEventListener('click', (e) => { if (e.target === vpn) vpn.hidden = true; });
   vpnFile.addEventListener('change', () => { vpnSend.disabled = !vpnFile.files.length; setMsg(vpnMsg, ''); });

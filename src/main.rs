@@ -13,9 +13,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tower_http::services::{ServeDir, ServeFile};
 
+mod login;
 mod vpn;
 
-const DEFAULT_UA: &str = "reddit-swipe/0.1 (selbst gehostet; öffentliche Reddit-Daten)";
+// Reddit antwortet auf unbekannte Clients oft mit 403/429, daher ein Browser-User-Agent.
+const DEFAULT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const SORTS: &[&str] = &["hot", "new", "top", "rising", "best"];
 const TIMES: &[&str] = &["hour", "day", "week", "month", "year", "all"];
 /// Nur diese Hosts werden über /api/media weitergereicht (Schutz vor offenem Proxy).
@@ -97,6 +99,10 @@ async fn main() {
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/feed", get(feed))
         .route("/api/media", get(media))
+        .route(
+            "/api/login",
+            get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/api/vpn", get(vpn::status).post(vpn::upload).layer(DefaultBodyLimit::max(16 * 1024)))
         .fallback_service(ServeDir::new(&static_dir).fallback(ServeFile::new(index)))
         .with_state(AppState { client });
@@ -142,21 +148,25 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
         url.push_str(&format!("&after={a}"));
     }
 
-    let resp = match st
-        .client
-        .get(&url)
-        .timeout(Duration::from_secs(20))
-        .send()
-        .await
-    {
+    let cookie = login::load();
+    let mut req = st.client.get(&url).timeout(Duration::from_secs(20));
+    if let Some(c) = &cookie {
+        req = req.header(header::COOKIE, c.as_str());
+    }
+    let resp = match req.send().await {
         Ok(r) => r,
         Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Reddit nicht erreichbar: {e}")),
     };
     let status = resp.status();
     if !status.is_success() {
+        let hint = if cookie.is_some() {
+            " – ist der Login-Cookie abgelaufen? Im Dialog neu einfügen."
+        } else {
+            " – Reddit verlangt einen Login (Dialog \"VPN\" → Reddit-Login)."
+        };
         return err(
             StatusCode::BAD_GATEWAY,
-            format!("Reddit hat die Anfrage abgelehnt (HTTP {})", status.as_u16()),
+            format!("Reddit hat die Anfrage abgelehnt (HTTP {}){hint}", status.as_u16()),
         );
     }
     let value: Value = match resp.json().await {
