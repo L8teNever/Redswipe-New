@@ -28,6 +28,11 @@ HANDS_ON = os.environ.get("HANDS", "1") != "0"
 HANDS_MAX = int(os.environ.get("HANDS_MAX", "4"))
 HANDS_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hand_landmarker.task")
 POSE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pose_landmarker.task")
+HOLISTIC_ON = os.environ.get("HOLISTIC", "0") != "0"
+HOLISTIC_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "holistic_landmarker.task")
+COLORS_ON = os.environ.get("COLORS", "1") != "0"
+COLORS_EVERY = int(os.environ.get("COLORS_EVERY", "12"))  # Video: nur jeden n-ten Frame auf Haar-/Hautfarbe prüfen
+PARSE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_parsing.onnx")
 MAX_WIDTH = 640  # Frames vor der Erkennung verkleinern (das Modell rechnet ohnehin mit 320 px)
 BATCH = 8
 ROOT = "/cache"
@@ -131,6 +136,54 @@ class Hands:
             pass
 
 
+class Holistic:
+    """MediaPipe Holistic Landmarker: Ermittelt Pose (33 Punkte), Gesicht und Hände in einem Modell."""
+
+    def __init__(self, video):
+        import mediapipe as mp
+        from mediapipe.tasks import python as mpt
+        from mediapipe.tasks.python import vision
+
+        self.mp = mp
+        self.video = video
+        self.last_ts = -1
+        opts = vision.HolisticLandmarkerOptions(
+            base_options=mpt.BaseOptions(model_asset_path=HOLISTIC_MODEL),
+            running_mode=vision.RunningMode.VIDEO if video else vision.RunningMode.IMAGE,
+            min_pose_detection_confidence=POSE_CONF,
+            min_pose_landmarks_confidence=POSE_CONF,
+            min_hand_landmarks_confidence=POSE_CONF,
+            min_face_detection_confidence=POSE_CONF,
+            min_face_landmarks_confidence=POSE_CONF,
+        )
+        self.lm = vision.HolisticLandmarker.create_from_options(opts)
+
+    def run(self, bgr, t=0.0):
+        rgb = np.ascontiguousarray(bgr[:, :, ::-1])
+        img = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb)
+        if self.video:
+            ts = max(int(t * 1000), self.last_ts + 1)
+            self.last_ts = ts
+            res = self.lm.detect_for_video(img, ts)
+        else:
+            res = self.lm.detect(img)
+        poses = []
+        if res.pose_landmarks:
+            poses.append([[round(p.x, 3), round(p.y, 3), round(p.visibility or 0.0, 2)] for p in res.pose_landmarks])
+        hands = []
+        if res.left_hand_landmarks:
+            hands.append([[round(p.x, 3), round(p.y, 3), 1.0] for p in res.left_hand_landmarks])
+        if res.right_hand_landmarks:
+            hands.append([[round(p.x, 3), round(p.y, 3), 1.0] for p in res.right_hand_landmarks])
+        return poses, hands
+
+    def close(self):
+        try:
+            self.lm.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 _yolo = None
 _yolo_lock = threading.Lock()
 
@@ -217,19 +270,374 @@ def face_boxes(items):
     return [tuple(d["box"]) for d in items if str(d["label"]).startswith("FACE_")]
 
 
-def refine_faces(poses, faces):
-    """NudeNet-Gesichter korrigieren die Pose: Gesichtspunkte (0-10) bleiben nur, wenn sie in/an einer
-    erkannten Gesichtsbox liegen. Sonst (kein Gesicht erkannt oder Punkte woanders) werden sie ausgeblendet
-    (Sichtbarkeit 0), das Frontend zeichnet sie dann nicht."""
+def torso_boxes(items):
+    """Rumpf-Boxen (Brust, Bauch, Po, Genitalien) aus den NudeNet-Treffern als (x, y, w, h)."""
+    return [tuple(d["box"]) for d in items if any(k in str(d["label"]) for k in TORSO_KEYS)]
+
+
+def feet_boxes(items):
+    """Fuß-Boxen aus den NudeNet-Treffern als (x, y, w, h)."""
+    return [tuple(d["box"]) for d in items if str(d["label"]).startswith("FEET_")]
+
+
+def _hit(x, y, boxes, m=0.0):
+    return any(bx - bw * m <= x <= bx + bw * (1 + m) and by - bh * m <= y <= by + bh * (1 + m) for bx, by, bw, bh in boxes)
+
+
+def reconcile(poses, hands, items):
+    """Gegenseitiges Abgleichen aller Detektoren (NudeNet, Pose, Hände, YOLO):
+    1. Gesichtspunkte (0-10):
+       - Dürfen niemals auf Rumpf- (Brust/Bauch/Po/Genitalien) oder Fuß-Boxen liegen!
+       - Liegen bei aufrechter Haltung immer über den Schultern.
+       - Wenn NudeNet Gesichter erkannt hat: Gesichtspunkte müssen in einer Gesichtsbox liegen
+         und werden dann bestätigt (erhöhte Sichtbarkeit); Punkte woanders werden verworfen.
+       - Wenn NudeNet kein Gesicht erkannt hat: Liegt der Rumpf weit oben (Kopf abgeschnitten)
+         oder sind die Punkte uneindeutig, werden verdächtige Gesichtspunkte ausgeblendet.
+    2. Hände & Handgelenke:
+       - Das präzise Hand-Tracking von MediaPipe Hands richtet Handgelenke (15, 16) und
+         Fingerspitzen (17-22) der Pose exakt aus.
+    3. Rumpf & Skelette:
+       - Skelette, die den erkannten NudeNet-Körperteilen widersprechen oder keine Stütze haben,
+         werden aussortiert."""
+    fb = face_boxes(items)
+    tb = torso_boxes(items)
+    ftb = feet_boxes(items)
     out = []
     for person in poses:
         pts = [list(p) for p in person]
+
+        # 1. Gesichtspunkte anatomisch und gegen NudeNet abgleichen
+        sh = [pts[i] for i in (11, 12) if i < len(pts) and pts[i][2] >= 0.3]
+        hips = [pts[i] for i in (23, 24) if i < len(pts) and pts[i][2] >= 0.3]
+        sy = sum(q[1] for q in sh) / len(sh) if sh else None
+        hy = sum(q[1] for q in hips) / len(hips) if hips else None
+
         for i in range(min(11, len(pts))):
             x, y = pts[i][0], pts[i][1]
-            ok = any(fx - fw * 0.4 <= x <= fx + fw * 1.4 and fy - fh * 0.4 <= y <= fy + fh * 1.4 for fx, fy, fw, fh in faces)
-            if not ok:
+
+            # Ein Gesichtspunkt kann NIE auf Brust/Bauch/Po/Genitalien oder Füßen liegen
+            if _hit(x, y, tb, m=0.03) or _hit(x, y, ftb, m=0.05):
                 pts[i][2] = 0.0
+                continue
+
+            # Aufrechte Haltung: Schultern über Hüften -> Kopf muss über den Schultern sein
+            if sy is not None:
+                if hy is None or sy < hy:  # Aufrecht: y nimmt nach unten zu
+                    if y > sy + 0.02:  # Liegt tiefer als die Schultern -> kein Gesicht
+                        pts[i][2] = 0.0
+                        continue
+                elif sy > hy:  # Kopfstand / invertiert
+                    if y < sy - 0.02:
+                        pts[i][2] = 0.0
+                        continue
+
+            # NudeNet Gesichts-Abgleich
+            if fb:
+                in_face = any(fx - fw * 0.35 <= x <= fx + fw * 1.35 and fy - fh * 0.35 <= y <= fy + fh * 1.35 for fx, fy, fw, fh in fb)
+                if not in_face:
+                    pts[i][2] = 0.0
+                else:
+                    pts[i][2] = max(pts[i][2], 0.9)
+            elif tb:
+                min_torso_y = min(b[1] for b in tb)
+                if min_torso_y < 0.15 and y > min_torso_y - 0.05:
+                    pts[i][2] = 0.0
+
+        # 2. Handgelenke und Finger an die präzise Hand-Erkennung anbinden
+        # 15: links (17, 19, 21), 16: rechts (18, 20, 22)
+        for wi, fingers in ((15, (17, 19, 21)), (16, (18, 20, 22))):
+            if wi >= len(pts):
+                continue
+            best, bd = None, 0.12
+            for hd in hands:
+                d = ((hd[0][0] - pts[wi][0]) ** 2 + ((hd[0][1] - pts[wi][1]) ** 2)) ** 0.5
+                if d < bd:
+                    best, bd = hd, d
+            if best:
+                pts[wi][0], pts[wi][1] = best[0][0], best[0][1]
+                pts[wi][2] = max(pts[wi][2], 0.95)
+                if len(best) >= 21:
+                    pinky_i, index_i, thumb_i = fingers
+                    if pinky_i < len(pts):
+                        pts[pinky_i] = [best[20][0], best[20][1], max(pts[pinky_i][2], 0.9)]
+                    if index_i < len(pts):
+                        pts[index_i] = [best[8][0], best[8][1], max(pts[index_i][2], 0.9)]
+                    if thumb_i < len(pts):
+                        pts[thumb_i] = [best[4][0], best[4][1], max(pts[thumb_i][2], 0.9)]
+
         out.append(pts)
+
+    # 3. Skelette mit Rumpf-Ankern abgleichen
+    anchors = [a for a in anchors_from((d["label"], d["box"]) for d in items) if a[0] == "torso"]
+    if anchors and len(out) > 1:
+        sup = [pose_support(p, anchors) for p in out]
+        if max(sup) > 0:
+            out = [p for p, n in zip(out, sup) if n > 0]
+    return out
+
+
+def smooth_poses(tl, fps):
+    """Zeitliche Glättung und Entprellung der Skelette für Videos:
+    - Verfolgt Personen stabil über Frames hinweg (Track-ID).
+    - Überbrückt kurze Erkennungslücken (1-4 Frames) durch lineare Interpolation.
+    - Entfernt plötzliche 1-Frame-Ausreißer/Zucker (Outlier-Spikes).
+    - Wendet gewichtete Gauß-Glättung auf Koordinaten und Sichtbarkeiten an,
+      sodass die Pose nicht mehr flattert oder springt."""
+    if len(tl) < 3:
+        return
+    gap = max(3, int(fps * 0.25))  # bis zu ~250ms Lücken überbrücken
+    frame_map = {round(t * fps): ei for ei, (t, _) in enumerate(tl)}
+    all_frames = sorted(frame_map.keys())
+    if not all_frames:
+        return
+
+    def center(p):
+        pts = [p[i] for i in (11, 12, 23, 24) if i < len(p) and p[i][2] >= 0.3] or [q for q in p if q[2] >= 0.3]
+        if not pts:
+            return None
+        return sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts)
+
+    # 1. Tracks aufbauen
+    tracks = []  # {"last": (x, y), "end": Frame-Nr, "items": [(fn, person_data)]}
+    for fn in all_frames:
+        ei = frame_map[fn]
+        t, people = tl[ei]
+        used = set()
+        for pi, p in enumerate(people):
+            c = center(p)
+            if c is None:
+                continue
+            best, bd = None, 0.20
+            for tr in tracks:
+                if id(tr) in used or fn - tr["end"] > gap:
+                    continue
+                d = ((tr["last"][0] - c[0]) ** 2 + (tr["last"][1] - c[1]) ** 2) ** 0.5
+                if d < bd:
+                    best, bd = tr, d
+            if best is None:
+                best = {"last": c, "end": fn, "items": []}
+                tracks.append(best)
+            used.add(id(best))
+            best["last"], best["end"] = c, fn
+            best["items"].append((fn, p))
+
+    # 2. Pro Track: Lücken füllen, Ausreißer entfernen und Gauß-Filter anwenden
+    sigma = max(1.5, 0.08 * fps)
+    rad = int(sigma * 2.5)
+
+    track_results = []
+    for tr in tracks:
+        its = tr["items"]
+        if len(its) < 2:
+            continue
+
+        dense_items = []
+        for idx in range(len(its)):
+            fn, p = its[idx]
+            if dense_items and 1 < fn - dense_items[-1][0] <= 5:
+                prev_fn, prev_p = dense_items[-1]
+                steps = fn - prev_fn
+                arr_prev = np.array(prev_p, dtype=float)
+                arr_curr = np.array(p, dtype=float)
+                for step in range(1, steps):
+                    frac = step / steps
+                    interp = (1.0 - frac) * arr_prev + frac * arr_curr
+                    dense_items.append((prev_fn + step, interp.tolist()))
+            dense_items.append((fn, p))
+
+        n = len(dense_items)
+        if n < 3:
+            continue
+
+        fr = np.array([item[0] for item in dense_items], dtype=float)
+        arr = np.array([item[1] for item in dense_items], dtype=float)  # (n, 33, 3)
+
+        # Ausreißer-Spikes (1-Frame-Zucken) korrigieren
+        for k in range(1, n - 1):
+            if fr[k] - fr[k - 1] == 1.0 and fr[k + 1] - fr[k] == 1.0:
+                d_prev = np.hypot(arr[k, :, 0] - arr[k - 1, :, 0], arr[k, :, 1] - arr[k - 1, :, 1])
+                d_next = np.hypot(arr[k, :, 0] - arr[k + 1, :, 0], arr[k, :, 1] - arr[k + 1, :, 1])
+                d_span = np.hypot(arr[k + 1, :, 0] - arr[k - 1, :, 0], arr[k + 1, :, 1] - arr[k - 1, :, 1])
+                spike = (d_prev > 0.12) & (d_next > 0.12) & (d_span < 0.08)
+                if np.any(spike):
+                    arr[k, spike, 0] = (arr[k - 1, spike, 0] + arr[k + 1, spike, 0]) / 2.0
+                    arr[k, spike, 1] = (arr[k - 1, spike, 1] + arr[k + 1, spike, 1]) / 2.0
+                    arr[k, spike, 2] = (arr[k - 1, spike, 2] + arr[k + 1, spike, 2]) / 2.0
+
+        # Gauß-Filter über Zeit
+        res = arr.copy()
+        for k in range(n):
+            lo, hi = k, k
+            while lo > 0 and fr[k] - fr[lo - 1] <= rad:
+                lo -= 1
+            while hi < n - 1 and fr[hi + 1] - fr[k] <= rad:
+                hi += 1
+            w = np.exp(-0.5 * ((fr[lo:hi + 1] - fr[k]) / sigma) ** 2)[:, None] * np.clip(arr[lo:hi + 1, :, 2], 0.05, 1.0)
+            ws = w.sum(axis=0)
+            ok = ws > 1e-6
+            for c in (0, 1):
+                v = (w * arr[lo:hi + 1, :, c]).sum(axis=0) / np.where(ok, ws, 1.0)
+                res[k, :, c] = np.where(ok, v, arr[k, :, c])
+            w_raw = np.exp(-0.5 * ((fr[lo:hi + 1] - fr[k]) / (sigma * 1.5)) ** 2)[:, None]
+            res[k, :, 2] = np.clip((w_raw * arr[lo:hi + 1, :, 2]).sum(axis=0) / w_raw.sum(axis=0), 0.0, 1.0)
+
+        for (fn_i, _), r in zip(dense_items, res):
+            track_results.append((fn_i, [[round(float(a), 3), round(float(b), 3), round(float(c), 2)] for a, b, c in r]))
+
+    frame_dict = {}
+    for fn, p in track_results:
+        frame_dict.setdefault(fn, []).append(p)
+
+    tl.clear()
+    for fn in sorted(frame_dict.keys()):
+        tl.append([round(fn / fps, 3), frame_dict[fn]])
+
+
+
+# ---------------------------------------------------------------- Haar- und Hautfarbe
+# Ablauf: Gesichtsausschnitt aus den Pose-Gesichtspunkten (0-10) -> BiSeNet Face-Parsing (Haut/Haar-Maske)
+# -> K-Means in Lab -> Haut: ITA-Winkel, Haar: Regeln über HSV.
+_parse_sess = None
+_parse_lock = threading.Lock()
+_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+_STD = np.array([0.229, 0.224, 0.225], np.float32)
+SKIN_IDS, NOSE_ID, HAIR_ID = (1,), 10, 17
+
+
+def _parser():
+    global _parse_sess
+    with _parse_lock:
+        if _parse_sess is None:
+            _parse_sess = onnxruntime.InferenceSession(PARSE_MODEL, providers=["CPUExecutionProvider"])
+        return _parse_sess
+
+
+def face_crop(bgr, pose):
+    """Quadratischer Ausschnitt um Gesicht + Haar aus den Pose-Gesichtspunkten; None wenn zu klein/unsicher."""
+    import cv2
+
+    h, w = bgr.shape[:2]
+    pts = [(p[0] * w, p[1] * h) for p in pose[:11] if p[2] >= 0.3]
+    if len(pts) < 4:
+        return None
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    fw = max(max(xs) - min(xs), (max(ys) - min(ys)) * 0.9)
+    if fw < 18:
+        return None
+    cx, cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2 - 0.3 * fw
+    half = int(round(1.2 * fw))
+    x0, y0 = int(round(cx)) - half, int(round(cy)) - half
+    pad = max(0, -x0, -y0, x0 + 2 * half - w, y0 + 2 * half - h)
+    img = cv2.copyMakeBorder(bgr, pad, pad, pad, pad, cv2.BORDER_REPLICATE) if pad else bgr
+    return img[y0 + pad:y0 + pad + 2 * half, x0 + pad:x0 + pad + 2 * half]
+
+
+def parse_face(crop):
+    import cv2
+
+    rgb = cv2.cvtColor(cv2.resize(crop, (512, 512), interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
+    x = ((rgb.astype(np.float32) / 255.0 - _MEAN) / _STD).transpose(2, 0, 1)[None]
+    sess = _parser()
+    out = sess.run(None, {sess.get_inputs()[0].name: x})[0]
+    return out[0].argmax(0).astype(np.uint8), rgb
+
+
+def _dominant_lab(lab_px, k=3):
+    """K-Means in Lab; liefert (Lab-Mittel, Anteil) pro Cluster, größte zuerst."""
+    import cv2
+
+    if len(lab_px) > 3000:
+        lab_px = lab_px[np.random.default_rng(0).choice(len(lab_px), 3000, replace=False)]
+    k = max(1, min(k, len(lab_px) // 40))
+    if k == 1:
+        return [(lab_px.mean(0), 1.0)]
+    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
+    _, lbl, cen = cv2.kmeans(lab_px.astype(np.float32), k, None, crit, 2, cv2.KMEANS_PP_CENTERS)
+    cnt = np.bincount(lbl.ravel(), minlength=k)
+    order = np.argsort(-cnt)
+    return [(cen[i], cnt[i] / len(lab_px)) for i in order]
+
+
+def _lab_to_rgb(lab):
+    import cv2
+
+    px = np.uint8([[np.clip(lab, 0, 255)]])
+    b, g, r = cv2.cvtColor(px, cv2.COLOR_LAB2BGR)[0, 0]
+    return int(r), int(g), int(b)
+
+
+def skin_class(L, b):
+    """ITA = atan2(L-50, b): Schwellen nach Chardon et al. (Lab-L 0..100, b mit Vorzeichen)."""
+    ita = np.degrees(np.arctan2(L - 50.0, max(b, 0.5)))
+    for lim, name in ((55, "sehr hell"), (41, "hell"), (28, "mittel"), (10, "gebräunt"), (-30, "braun")):
+        if ita > lim:
+            return name
+    return "dunkel"
+
+
+def hair_class(rgb):
+    import colorsys
+
+    r, g, b = [c / 255.0 for c in rgb]
+    hh, s, v = colorsys.rgb_to_hsv(r, g, b)
+    hue = hh * 360
+    if s < 0.18:
+        return "weiß" if v > 0.78 else "grau" if v > 0.40 else "schwarz"
+    if v < 0.22:
+        return "schwarz"
+    if s > 0.55 and v > 0.45 and not (8 <= hue <= 50):
+        return "bunt"
+    if (hue < 18 or hue > 340) and s > 0.5 and v > 0.35:
+        return "rot"
+    if v < 0.30:
+        return "schwarz"
+    if v < 0.45:
+        return "dunkelbraun"
+    if v < 0.62:
+        return "braun"
+    return "blond" if s < 0.75 else "rot"
+
+
+def person_colors(bgr, pose):
+    """Haar- und Hautfarbe einer Person; fehlende Teile bleiben None."""
+    import cv2
+
+    crop = face_crop(bgr, pose)
+    if crop is None:
+        return None
+    seg, rgb = parse_face(crop)
+    lab_img = cv2.cvtColor(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), cv2.COLOR_BGR2LAB)
+    ker = np.ones((5, 5), np.uint8)
+    res = {"hair": None, "skin": None, "hair_rgb": None, "skin_rgb": None}
+    skin = cv2.erode(np.isin(seg, SKIN_IDS + (NOSE_ID,)).astype(np.uint8), ker)
+    px = lab_img[skin > 0].astype(np.float32)
+    px = px[(px[:, 0] > 255 * 0.12) & (px[:, 0] < 255 * 0.97)]  # tiefe Schatten und Glanzlichter raus
+    if len(px) >= 80:
+        cl = _dominant_lab(px)
+        top = cl[0][0][0]
+        keep = [(c, wgt) for c, wgt in cl if c[0] >= top - 255 * 0.15]  # dunkle Schattencluster ignorieren
+        tw = sum(wgt for _, wgt in keep)
+        c = sum(c * wgt for c, wgt in keep) / tw
+        res["skin"] = skin_class(c[0] * 100 / 255, c[2] - 128)
+        res["skin_rgb"] = _lab_to_rgb(c)
+    hair = cv2.erode((seg == HAIR_ID).astype(np.uint8), ker)
+    if hair.sum() >= 0.015 * seg.size:
+        cl = _dominant_lab(lab_img[hair > 0].astype(np.float32))
+        rgbc = _lab_to_rgb(cl[0][0])
+        res["hair"] = hair_class(rgbc)
+        res["hair_rgb"] = rgbc
+    return res
+
+
+def colors_for(bgr, poses):
+    if not (COLORS_ON and poses and os.path.exists(PARSE_MODEL)):
+        return None
+    out = []
+    for p in poses:
+        try:
+            out.append(person_colors(bgr, p))
+        except Exception:  # noqa: BLE001
+            out.append(None)
     return out
 
 
@@ -277,26 +685,36 @@ def scan_image(det, path):
     out = {"kind": "image", "width": w, "height": h, "detections": items}
     boxes = (yolo_persons([img]) or [None])[0]
     poses, hs = [], []
-    if POSE_ON:
-        pose = Pose(False)
+    if HOLISTIC_ON:
+        hol = Holistic(False)
         try:
-            poses = pose.run(img)
+            poses, hs = hol.run(img)
         finally:
-            pose.close()
-    if HANDS_ON:
-        hands = Hands(False)
-        try:
-            hs = hands.run(img)
-        finally:
-            hands.close()
+            hol.close()
+    else:
+        if POSE_ON:
+            pose = Pose(False)
+            try:
+                poses = pose.run(img)
+            finally:
+                pose.close()
+        if HANDS_ON:
+            hands = Hands(False)
+            try:
+                hs = hands.run(img)
+            finally:
+                hands.close()
     poses, hs = limit_by_persons(boxes, poses, hs, anchors_from((d["label"], d["box"]) for d in items))
-    poses = refine_faces(poses, face_boxes(items))
-    if POSE_ON:
+    poses = reconcile(poses, hs, items)
+    if HOLISTIC_ON or POSE_ON:
         out["poses"] = poses
-    if HANDS_ON:
+    if HOLISTIC_ON or HANDS_ON:
         out["hands"] = hs
     if boxes is not None:
         out["persons"] = len(boxes)
+    cols = colors_for(img, poses)
+    if cols is not None:
+        out["appearance"] = cols
     return out
 
 
@@ -329,10 +747,13 @@ def scan_video(det, path, cancel=None):
     timeline = []  # pro Frame mit Treffern: [Zeit, [[Label-Nr, Score, x, y, b, h], ...]]
     names = []
     pose_tl = []  # pro Frame mit Personen: [Zeit, [Person(33 x [x, y, Sichtbarkeit]), ...]]
-    pose = Pose(True) if POSE_ON else None
     hand_tl = []
-    hands = Hands(True) if HANDS_ON else None
-    pose_ex = ThreadPoolExecutor(1) if (pose or hands or YOLO_ON) else None
+    hol = Holistic(True) if HOLISTIC_ON else None
+    pose = Pose(True) if (POSE_ON and not HOLISTIC_ON) else None
+    hands = Hands(True) if (HANDS_ON and not HOLISTIC_ON) else None
+    pose_ex = ThreadPoolExecutor(1) if (hol or pose or hands or YOLO_ON) else None
+    color_tl = []  # [Zeit, [{hair, skin, ...} je Person]] nur für jeden n-ten Frame
+    person_tl = []  # nur Änderungen der Personenzahl: [Zeit, Anzahl]
     person_max, person_frames = 0, 0  # läuft parallel zu NudeNet, bleibt in Frame-Reihenfolge
     total = 0
     batch, idx = [], []
@@ -342,7 +763,13 @@ def scan_video(det, path, cancel=None):
         out = []
         for k, (f, i) in enumerate(zip(frames, ids)):
             b = boxes[k] if boxes else None
-            out.append((i / fps, b, pose.run(f, i / fps) if pose else [], hands.run(f, i / fps) if hands else []))
+            t_frame = i / fps
+            if hol:
+                p_out, h_out = hol.run(f, t_frame)
+            else:
+                p_out = pose.run(f, t_frame) if pose else []
+                h_out = hands.run(f, t_frame) if hands else []
+            out.append((t_frame, b, p_out, h_out))
         return out
 
     def flush():
@@ -350,7 +777,7 @@ def scan_video(det, path, cancel=None):
         if not batch:
             return
         fut = pose_ex.submit(pose_batch, batch, idx) if pose_ex else None
-        frame_faces, frame_anchors = [], []
+        frame_items = []
         for i, dets in zip(idx, detect_many(det, batch)):
             t = i / fps
             seen = set()
@@ -371,18 +798,24 @@ def scan_video(det, path, cancel=None):
                 e["last"] = t
             if row:
                 timeline.append([round(t, 3), row])
-            frame_faces.append([tuple(r[2:6]) for r in row if names[r[0]].startswith("FACE_")])
-            frame_anchors.append(anchors_from((names[r[0]], tuple(r[2:6])) for r in row))
+            frame_items.append([{"label": names[r[0]], "box": r[2:6]} for r in row])
         if fut:
-            for (t, b, people, hs), ff, fa in zip(fut.result(), frame_faces, frame_anchors):
+            for (t, b, people, hs), fi, fr, ix in zip(fut.result(), frame_items, batch, idx):
+                fa = anchors_from((d["label"], d["box"]) for d in fi)
                 people, hs = limit_by_persons(b, people, hs, fa)
                 npers = len(b) if b is not None else None
-                people = refine_faces(people, ff)
+                people = reconcile(people, hs, fi)
+                if npers is not None and (not person_tl or person_tl[-1][1] != npers):
+                    person_tl.append([round(t, 3), npers])
                 if npers:
                     person_frames += 1
                     person_max = max(person_max, npers)
                 if people:
                     pose_tl.append([round(t, 3), people])
+                    if COLORS_ON and ix % COLORS_EVERY == 0:
+                        cols = colors_for(fr, people)
+                        if cols and any(cols):
+                            color_tl.append([round(t, 3), cols])
                 if hs:
                     hand_tl.append([round(t, 3), hs])
         batch, idx = [], []
@@ -406,6 +839,8 @@ def scan_video(det, path, cancel=None):
         proc.wait()
         if pose_ex:
             pose_ex.shutdown(wait=True)
+        if hol:
+            hol.close()
         if pose:
             pose.close()
         if hands:
@@ -420,13 +855,17 @@ def scan_video(det, path, cancel=None):
     res = {"kind": "video", "width": w, "height": h, "frames": total, "fps": round(fps, 3),
             "duration": round(duration or total / fps, 2), "detections": out,
             "names": names, "timeline": timeline}
-    if pose:
+    if hol or pose:
+        smooth_poses(pose_tl, fps)
         res["pose_timeline"] = pose_tl
         res["pose_frames"] = len(pose_tl)
     if YOLO_ON:
         res["persons_max"] = person_max
         res["person_frames"] = person_frames
-    if hands:
+        res["person_timeline"] = person_tl
+    if color_tl:
+        res["appearance_timeline"] = color_tl
+    if hol or hands:
         res["hand_timeline"] = hand_tl
         res["hand_frames"] = len(hand_tl)
     return res

@@ -106,10 +106,11 @@
   .scanbox .bx.cov span { background: #2b78c4; }
   .scaninfo { display: none; position: absolute; z-index: 4; left: 12px; right: 74px; bottom: calc(52px + env(safe-area-inset-bottom));
     flex-wrap: wrap; gap: 6px; pointer-events: none; }
-  body.scan-on .scaninfo { display: none; }
+  body.scan-on .scaninfo { display: flex; }
   .scaninfo .chip { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.7); color: #fff; }
   .scaninfo .chip.hit { background: rgba(255,69,0,.85); }
   .scaninfo .chip.cov { background: rgba(43,120,196,.85); }
+  .scaninfo .chip .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 3px -1px 0; border: 1px solid rgba(255,255,255,.7); }
   .scaninfo .chip.pose { background: rgba(30,150,90,.85); }
 
   .pauseicon { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 64px; opacity: 0;
@@ -446,7 +447,7 @@
     [12,14],[14,16],[16,18],[16,20],[16,22],[18,20],[11,23],[12,24],[23,24],[23,25],[24,26],[25,27],[26,28],[27,29],[28,30],[29,31],
     [30,32],[27,31],[28,32]];
   const HAND_LINES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-  function drawPoses(c, people, hands) {
+  function drawPoses(c, people, hands, nipples) {
     const dpr = window.devicePixelRatio || 1;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -464,17 +465,64 @@
       pt.forEach((q) => { g.beginPath(); g.arc(q[0] * w, q[1] * h, 2.2 * dpr, 0, Math.PI * 2); g.fill(); });
     });
     (people || []).forEach((pt) => {
-      const ok = (i) => pt[i] && pt[i][2] >= (i <= 10 ? 0.85 : 0.5);
+      const ok = (i) => pt[i] && pt[i][2] >= (i <= 10 ? 0.85 : 0.4);
       g.lineWidth = 2.5 * dpr; g.strokeStyle = 'rgba(61,220,132,.95)';
       g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 3 * dpr;
       POSE_LINES.forEach(([a, b]) => {
         if (!ok(a) || !ok(b)) return;
         g.beginPath(); g.moveTo(pt[a][0] * w, pt[a][1] * h); g.lineTo(pt[b][0] * w, pt[b][1] * h); g.stroke();
       });
+      // Anatomische Brust-Verbindungen (Schultern -> Brustwarzen & Paar-Verbindung)
+      if (ok(33) || ok(34)) {
+        g.lineWidth = 1.8 * dpr; g.strokeStyle = 'rgba(255,45,117,.8)';
+        g.setLineDash([4 * dpr, 3 * dpr]);
+        if (ok(11) && ok(33)) {
+          g.beginPath(); g.moveTo(pt[11][0] * w, pt[11][1] * h); g.lineTo(pt[33][0] * w, pt[33][1] * h); g.stroke();
+        }
+        if (ok(12) && ok(34)) {
+          g.beginPath(); g.moveTo(pt[12][0] * w, pt[12][1] * h); g.lineTo(pt[34][0] * w, pt[34][1] * h); g.stroke();
+        }
+        if (ok(33) && ok(34)) {
+          g.beginPath(); g.moveTo(pt[33][0] * w, pt[33][1] * h); g.lineTo(pt[34][0] * w, pt[34][1] * h); g.stroke();
+        }
+        g.setLineDash([]);
+      }
       g.fillStyle = '#fff';
       pt.forEach((q, i) => {
-        if (!ok(i)) return;
+        if (!ok(i) || i >= 33) return;
         g.beginPath(); g.arc(q[0] * w, q[1] * h, 3 * dpr, 0, Math.PI * 2); g.fill();
+      });
+      // Präzise Brustwarzen-Punkte hervorheben (33 = links, 34 = rechts)
+      [33, 34].forEach((idx) => {
+        if (!ok(idx)) return;
+        const q = pt[idx], x = q[0] * w, y = q[1] * h;
+        g.beginPath(); g.arc(x, y, 6 * dpr, 0, Math.PI * 2);
+        g.lineWidth = 2 * dpr; g.strokeStyle = 'rgba(255,45,117,.95)'; g.stroke();
+        g.beginPath(); g.arc(x, y, 3.5 * dpr, 0, Math.PI * 2);
+        g.fillStyle = '#ff2d75'; g.fill();
+        g.beginPath(); g.arc(x, y, 1.2 * dpr, 0, Math.PI * 2);
+        g.fillStyle = '#fff'; g.fill();
+      });
+    });
+    // Isolierte Brustwarzen-Paare (ohne Skelett bei Nahaufnahmen)
+    (nipples || []).forEach((pair) => {
+      if (pair.person_id != null) return;
+      const l = pair.left, r = pair.right;
+      if (l && r) {
+        g.lineWidth = 1.8 * dpr; g.strokeStyle = 'rgba(255,45,117,.8)';
+        g.setLineDash([4 * dpr, 3 * dpr]);
+        g.beginPath(); g.moveTo(l.x * w, l.y * h); g.lineTo(r.x * w, r.y * h); g.stroke();
+        g.setLineDash([]);
+      }
+      [l, r].forEach((q) => {
+        if (!q) return;
+        const x = q.x * w, y = q.y * h;
+        g.beginPath(); g.arc(x, y, 6 * dpr, 0, Math.PI * 2);
+        g.lineWidth = 2 * dpr; g.strokeStyle = 'rgba(255,45,117,.95)'; g.stroke();
+        g.beginPath(); g.arc(x, y, 3.5 * dpr, 0, Math.PI * 2);
+        g.fillStyle = '#ff2d75'; g.fill();
+        g.beginPath(); g.arc(x, y, 1.2 * dpr, 0, Math.PI * 2);
+        g.fillStyle = '#fff'; g.fill();
       });
     });
   }
@@ -485,12 +533,19 @@
     return i >= 0 && t - tl[i][0] > tol ? -1 : i;
   }
 
+  function appChip(a, i) {
+      const c = el('span', 'chip pose');
+      const part = (txt, rgb) => { if (!txt) return; const sw = el('i', 'sw'); if (rgb) sw.style.background = `rgb(${rgb.join(',')})`; c.appendChild(sw); c.appendChild(document.createTextNode(txt + ' ')); };
+      if (a) { part(a.hair && 'Haar ' + a.hair, a.hair_rgb); part(a.skin && 'Haut ' + a.skin, a.skin_rgb); }
+      return c.childNodes.length ? (c.insertBefore(document.createTextNode(`P${i + 1}: `), c.firstChild), c) : null;
+    }
+
   function renderScan(slide, m, r) {
     slide.querySelectorAll('.scanbox, .scaninfo').forEach((n) => n.remove());
     const info = el('div', 'scaninfo');
     const dets = r.detections || [];
-    const poses = r.poses || [], hands = r.hands || [];
-    if (m.type === 'image' && (dets.length || poses.length || hands.length)) {
+    const poses = r.poses || [], hands = r.hands || [], nipples = r.nipples || [];
+    if (m.type === 'image' && (dets.length || poses.length || hands.length || nipples.length)) {
       const layer = el('div', 'scanbox');
       dets.forEach((d) => {
         const b = el('div', 'bx' + (isCovered(d.label) ? ' cov' : ''));
@@ -500,14 +555,25 @@
         layer.appendChild(b);
       });
       let pc = null;
-      if (poses.length || hands.length) { pc = document.createElement('canvas'); pc.className = 'pose'; layer.appendChild(pc); }
+      if (poses.length || hands.length || nipples.length) { pc = document.createElement('canvas'); pc.className = 'pose'; layer.appendChild(pc); }
       slide.appendChild(layer);
-      const refit = () => { fitBox(layer, slide, r.width, r.height); if (pc) drawPoses(pc, poses, hands); };
+      const refit = () => { fitBox(layer, slide, r.width, r.height); if (pc) drawPoses(pc, poses, hands, nipples); };
       refit();
       new ResizeObserver(refit).observe(slide);
     }
-    if (m.type === 'image' && poses.length) info.appendChild(el('span', 'chip pose', `Pose: ${poses.length} ${poses.length === 1 ? 'Person' : 'Personen'}`));
+    const pn = (n) => `${n} ${n === 1 ? 'Person' : 'Personen'}`;
+    if (m.type === 'image' && r.persons != null) info.appendChild(el('span', 'chip pose', `👤 ${pn(r.persons)} erkannt`));
+    else if (m.type === 'video' && r.persons_max != null) {
+      const ch = el('span', 'chip pose', `👤 max ${pn(r.persons_max)}`);
+      ch.dataset.persons = '1'; info.appendChild(ch); info._pc = ch;
+    }
+    if (m.type === 'image' && poses.length) info.appendChild(el('span', 'chip pose', `Pose: ${pn(poses.length)}`));
     else if (m.type === 'video' && r.pose_frames) info.appendChild(el('span', 'chip pose', `Pose in ${pct(r.pose_frames / r.frames)} der Frames`));
+    if (m.type === 'image') (r.appearance || []).forEach((a, i) => { const c = appChip(a, i); if (c) info.appendChild(c); });
+    else if (m.type === 'video' && (r.appearance_timeline || []).length) { const box = el('span', ''); box.dataset.appearance = '1'; box.style.display = 'contents'; info.appendChild(box); }
+    let nipCount = 0;
+    nipples.forEach((p) => { if (p.left) nipCount++; if (p.right) nipCount++; });
+    if (nipCount) info.appendChild(el('span', 'chip hit', `🎯 ${nipCount} Brustwarze(n)`));
     if (!dets.length) {
       info.appendChild(el('span', 'chip', m.type === 'video' ? `Nichts erkannt (${r.frames} Frames geprüft)` : 'Nichts erkannt'));
     } else if (m.type === 'video') {
@@ -530,18 +596,20 @@
   // Video: Boxen frame-genau zum laufenden Bild (Zeitachse vom Scanner, jeder Frame ist geprüft).
   function attachVideoBoxes(slide, r) {
     const v = slide.querySelector('video');
-    const tl = r.timeline || [], ptl = r.pose_timeline || [], htl = r.hand_timeline || [];
-    if (!v || (!tl.length && !ptl.length && !htl.length)) return;
+    const tl = r.timeline || [], ptl = r.pose_timeline || [], htl = r.hand_timeline || [], ntl = r.nipple_timeline || [];
+    if (!v || (!tl.length && !ptl.length && !htl.length && !ntl.length)) return;
     const layer = el('div', 'scanbox');
-    const pc = (ptl.length || htl.length) ? document.createElement('canvas') : null;
+    const pc = (ptl.length || htl.length || ntl.length) ? document.createElement('canvas') : null;
     if (pc) { pc.className = 'pose'; layer.appendChild(pc); }
     const boxes = el('div');
     Object.assign(boxes.style, { position: 'absolute', inset: '0' });
     layer.appendChild(boxes);
     slide.appendChild(layer);
-    const names = r.names || [], tol = 1.5 / (r.fps || 30);
-    let shown = -2, pshown = -2, hshown = -2;
-    const refit = () => { fitBox(layer, slide, r.width, r.height); shown = pshown = hshown = -2; draw(v.currentTime); };
+    const names = r.names || [], tol = 2.5 / (r.fps || 30);
+    const prt = r.person_timeline || [];
+    let pcount = -2;
+    let ashown = -2, shown = -2, pshown = -2, hshown = -2, nshown = -2;
+    const refit = () => { fitBox(layer, slide, r.width, r.height); shown = pshown = hshown = nshown = -2; draw(v.currentTime); };
     const draw = (t) => {
       const i = findFrame(tl, t, tol);
       if (i !== shown) {
@@ -556,11 +624,24 @@
           boxes.appendChild(b);
         });
       }
+      const chip = slide.querySelector('.chip[data-persons]');
+      if (chip && prt.length) {
+        const q = findFrame(prt, t, 1e9), n = q >= 0 ? prt[q][1] : 0;
+        if (n !== pcount) { pcount = n; chip.textContent = `👤 ${n} ${n === 1 ? 'Person' : 'Personen'} (max ${r.persons_max})`; }
+      }
+      const abox = slide.querySelector('[data-appearance]'), atl = r.appearance_timeline || [];
+      if (abox && atl.length) {
+        const q = findFrame(atl, t, 1.5);
+        if (q !== ashown) {
+          ashown = q; abox.textContent = '';
+          if (q >= 0) atl[q][1].forEach((a, i) => { const c = appChip(a, i); if (c) abox.appendChild(c); });
+        }
+      }
       if (pc) {
-        const j = findFrame(ptl, t, tol), k = findFrame(htl, t, tol);
-        if (j !== pshown || k !== hshown) {
-          pshown = j; hshown = k;
-          drawPoses(pc, j >= 0 ? ptl[j][1] : null, k >= 0 ? htl[k][1] : null);
+        const j = findFrame(ptl, t, tol), k = findFrame(htl, t, tol), m = findFrame(ntl, t, tol);
+        if (j !== pshown || k !== hshown || m !== nshown) {
+          pshown = j; hshown = k; nshown = m;
+          drawPoses(pc, j >= 0 ? ptl[j][1] : null, k >= 0 ? htl[k][1] : null, m >= 0 ? ntl[m][1] : null);
         }
       }
     };

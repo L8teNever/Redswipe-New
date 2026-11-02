@@ -16,6 +16,7 @@ use tower_http::services::{ServeDir, ServeFile};
 mod actions;
 mod browser;
 mod login;
+pub mod nipples;
 mod optimize;
 mod scan;
 mod vpn;

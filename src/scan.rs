@@ -98,7 +98,7 @@ fn key(kind: &str, url: &str) -> String {
     let mut a = DefaultHasher::new();
     ("scan", kind, url).hash(&mut a);
     let mut b = DefaultHasher::new();
-    (url, kind, "scan", 10u8).hash(&mut b);
+    (url, kind, "scan", 14u8).hash(&mut b);
     format!("{:016x}{:016x}", a.finish(), b.finish())
 }
 
@@ -220,6 +220,7 @@ async fn run(st: &AppState, kind: &str, url: &Url, k: &str) -> Result<Value, Fai
     }
     let mut v: Value = resp.json().await.map_err(|e| Fail::Final(e.to_string()))?;
     v["status"] = json!("done");
+    crate::nipples::process_scan_result(&mut v);
     Ok(v)
 }
 
