@@ -136,6 +136,12 @@ pub fn render(c: &WgConf, endpoint: &str) -> String {
     if let Some(p) = &c.preshared_key {
         s.push_str(&format!("PresharedKey = {p}\n"));
     }
+    // IPv6-Adressen brauchen eckige Klammern (sonst ist "ip:port" nicht lesbar).
+    let endpoint = if endpoint.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{endpoint}]")
+    } else {
+        endpoint.to_string()
+    };
     s.push_str(&format!(
         "Endpoint = {endpoint}:{}\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = {}\n",
         c.endpoint_port, c.keepalive
@@ -291,6 +297,16 @@ mod tests {
     fn rejects_truncated_key_with_hint() {
         let e = parse_conf(&sample("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).unwrap_err();
         assert!(e.contains("PrivateKey") && e.contains("44"));
+    }
+
+    #[test]
+    fn ipv6_endpoint_gets_brackets_and_roundtrips() {
+        let c = parse_conf(&sample(&key('A'))).expect("gültig");
+        let out = render(&c, "2001:9e8:205e:dbc7:3ea6:2fff:feac:2411");
+        assert!(out.contains("Endpoint = [2001:9e8:205e:dbc7:3ea6:2fff:feac:2411]:57098"));
+        let back = parse_conf(&out).expect("Rundlauf");
+        assert_eq!(back.endpoint_host, "2001:9e8:205e:dbc7:3ea6:2fff:feac:2411");
+        assert_eq!(back.endpoint_port, 57098);
     }
 
     #[test]

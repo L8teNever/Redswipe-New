@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8080"
-      HTTPS_PROXY: http://gluetun:8888
+      HTTPS_PROXY: http://redswipe-vpn:8888
       NO_PROXY: localhost,127.0.0.1
     ports:
       - 8080:8080
@@ -46,3 +46,12 @@ services:
 
 volumes:
   vpnconf:
+
+# Hängt der Heim-Anschluss nur an IPv6 (z. B. DS-Lite, myfritz.net hat dann nur einen AAAA-Eintrag),
+# braucht das Stack-Netz IPv6:
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd42:5ed:5ee1::/64
