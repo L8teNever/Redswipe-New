@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashSet,
+    sync::atomic::{AtomicU64, Ordering},
     env,
     hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, OnceLock},
@@ -19,7 +20,7 @@ use axum::{
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Notify};
 
 use crate::{AppState, Post, err, media_allowed, optimize};
 
@@ -36,13 +37,55 @@ fn inflight() -> &'static Mutex<HashSet<String>> {
     S.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-/// Höchstens so viele Downloads/Scans gleichzeitig (der Scanner selbst begrenzt zusätzlich).
-fn permits() -> &'static Arc<Semaphore> {
-    static S: OnceLock<Arc<Semaphore>> = OnceLock::new();
-    S.get_or_init(|| {
-        let n = env::var("SCAN_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
-        Arc::new(Semaphore::new(n))
-    })
+/// Wartende Aufträge. Kleinere `prio` kommt zuerst: 0 = der Beitrag, den du gerade siehst, 1-3 = die
+/// nächsten Beiträge, 1000 = alles andere (in Feed-Reihenfolge).
+struct Job {
+    k: String,
+    kind: &'static str,
+    raw: String,
+    prio: u32,
+    seq: u64,
+}
+
+struct Queue {
+    jobs: Mutex<Vec<Job>>,
+    wake: Notify,
+}
+
+fn queue() -> &'static Queue {
+    static S: OnceLock<Queue> = OnceLock::new();
+    S.get_or_init(|| Queue { jobs: Mutex::new(Vec::new()), wake: Notify::new() })
+}
+
+static SEQ: AtomicU64 = AtomicU64::new(0);
+const IDLE: u32 = 1000;
+
+/// Die Arbeiter starten beim ersten Auftrag (SCAN_JOBS Stück, Standard 2).
+fn start_workers(st: &AppState) {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        let n: usize = env::var("SCAN_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+        for _ in 0..n.max(1) {
+            let st = st.clone();
+            tokio::spawn(async move {
+                loop {
+                    let job = {
+                        let mut jobs = queue().jobs.lock().await;
+                        let best = jobs.iter().enumerate().min_by_key(|(_, j)| (j.prio, j.seq)).map(|(i, _)| i);
+                        let job = best.map(|i| jobs.remove(i));
+                        if let Some(j) = &job {
+                            inflight().lock().await.insert(j.k.clone());
+                        }
+                        job
+                    };
+                    match job {
+                        Some(j) => work(&st, j).await,
+                        None => queue().wake.notified().await,
+                    }
+                }
+            });
+        }
+    });
 }
 
 fn key(kind: &str, url: &str) -> String {
@@ -67,12 +110,12 @@ pub fn enqueue_posts(st: &AppState, posts: &[Post]) {
             if m.src.is_empty() || (m.kind != "image" && m.kind != "video") {
                 continue;
             }
-            enqueue(st.clone(), m.kind, m.src.clone());
+            enqueue(st.clone(), m.kind, m.src.clone(), IDLE);
         }
     }
 }
 
-fn enqueue(st: AppState, kind: &'static str, raw: String) {
+fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32) {
     tokio::spawn(async move {
         let Ok(url) = Url::parse(&raw) else { return };
         if !media_allowed(&url) {
@@ -86,29 +129,43 @@ fn enqueue(st: AppState, kind: &'static str, raw: String) {
         if result_path(&k).exists() {
             return;
         }
+        start_workers(&st);
         {
-            let mut set = inflight().lock().await;
-            if set.contains(&k) || set.len() >= MAX_QUEUE {
+            // Läuft schon oder wartet schon: nur ggf. vorziehen.
+            let mut jobs = queue().jobs.lock().await;
+            if let Some(j) = jobs.iter_mut().find(|j| j.k == k) {
+                j.prio = j.prio.min(prio);
                 return;
             }
-            set.insert(k.clone());
-        }
-        let _permit = permits().clone().acquire_owned().await;
-        let res = run(&st, kind, &url, &k).await;
-        match res {
-            Ok(v) => {
-                let _ = tokio::fs::create_dir_all(optimize::cache_dir()).await;
-                let _ = tokio::fs::write(result_path(&k), v.to_string()).await;
+            if inflight().lock().await.contains(&k) || jobs.len() >= MAX_QUEUE {
+                return;
             }
-            // Scanner nicht erreichbar: nichts merken, beim nächsten Abruf wird neu versucht.
-            Err(Fail::Retry(m)) => eprintln!("Scan später erneut ({kind} {raw}): {m}"),
-            Err(Fail::Final(m)) => {
-                eprintln!("Scan fehlgeschlagen ({kind} {raw}): {m}");
-                let _ = tokio::fs::write(result_path(&k), json!({ "status": "failed", "error": m }).to_string()).await;
-            }
+            jobs.push(Job { k, kind, raw, prio, seq: SEQ.fetch_add(1, Ordering::Relaxed) });
         }
-        inflight().lock().await.remove(&k);
+        queue().wake.notify_one();
     });
+}
+
+async fn work(st: &AppState, job: Job) {
+    let Job { k, kind, raw, .. } = job;
+    let Ok(url) = Url::parse(&raw) else {
+        inflight().lock().await.remove(&k);
+        return;
+    };
+    let res = run(st, kind, &url, &k).await;
+    match res {
+        Ok(v) => {
+            let _ = tokio::fs::create_dir_all(optimize::cache_dir()).await;
+            let _ = tokio::fs::write(result_path(&k), v.to_string()).await;
+        }
+        // Scanner nicht erreichbar: nichts merken, beim nächsten Abruf wird neu versucht.
+        Err(Fail::Retry(m)) => eprintln!("Scan später erneut ({kind} {raw}): {m}"),
+        Err(Fail::Final(m)) => {
+            eprintln!("Scan fehlgeschlagen ({kind} {raw}): {m}");
+            let _ = tokio::fs::write(result_path(&k), json!({ "status": "failed", "error": m }).to_string()).await;
+        }
+    }
+    inflight().lock().await.remove(&k);
 }
 
 enum Fail {
@@ -149,6 +206,8 @@ async fn run(st: &AppState, kind: &str, url: &Url, k: &str) -> Result<Value, Fai
 pub struct ScanQuery {
     k: Option<String>,
     url: Option<String>,
+    /// Abstand zum aktuellen Beitrag (0 = sichtbar, 1-3 = die nächsten); fehlt er, bleibt die Reihenfolge.
+    p: Option<u32>,
 }
 
 /// Ergebnis abholen: {"status":"pending"} solange der Scan läuft, sonst die Erkennungen.
@@ -177,6 +236,6 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<ScanQuery>) -> 
         }
     }
     // Noch nichts da: sicherstellen, dass der Scan läuft.
-    enqueue(st, kind, raw.to_string());
+    enqueue(st, kind, raw.to_string(), q.p.map_or(IDLE, |p| p.min(IDLE)));
     Json(json!({ "status": "pending" })).into_response()
 }

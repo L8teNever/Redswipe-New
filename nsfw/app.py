@@ -105,6 +105,8 @@ def scan_video(det, path):
         stdout=subprocess.PIPE,
     )
     labels = {}
+    timeline = []  # pro Frame mit Treffern: [Zeit, [[Label-Nr, Score, x, y, b, h], ...]]
+    names = []
     total = 0
     batch, idx = [], []
 
@@ -115,10 +117,14 @@ def scan_video(det, path):
         for i, dets in zip(idx, detect_many(det, batch)):
             t = i / fps
             seen = set()
+            row = []
             for d in dets:
                 if d["score"] < MIN_SCORE:
                     continue
                 n = norm(d, w, h)
+                if n["label"] not in names:
+                    names.append(n["label"])
+                row.append([names.index(n["label"]), n["score"]] + [round(v, 3) for v in n["box"]])
                 e = labels.setdefault(n["label"], {"label": n["label"], "max": 0.0, "frames": 0, "first": t, "last": t, "box": n["box"], "at": t})
                 if n["score"] > e["max"]:
                     e["max"], e["box"], e["at"] = n["score"], n["box"], t
@@ -126,6 +132,8 @@ def scan_video(det, path):
                     e["frames"] += 1
                     seen.add(n["label"])
                 e["last"] = t
+            if row:
+                timeline.append([round(t, 3), row])
         batch, idx = [], []
 
     try:
@@ -151,7 +159,8 @@ def scan_video(det, path):
                     "first": round(e["first"], 2), "last": round(e["last"], 2), "at": round(e["at"], 2), "box": e["box"]})
     out.sort(key=lambda d: -d["score"])
     return {"kind": "video", "width": w, "height": h, "frames": total, "fps": round(fps, 3),
-            "duration": round(duration or total / fps, 2), "detections": out}
+            "duration": round(duration or total / fps, 2), "detections": out,
+            "names": names, "timeline": timeline}
 
 
 def work(req: Req):

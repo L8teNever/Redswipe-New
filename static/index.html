@@ -427,8 +427,7 @@
     scanBtn.classList.toggle('on', on);
     scanBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
     document.body.classList.toggle('scan-on', on);
-    if (on) document.querySelectorAll('.post[data-visible="1"]').forEach(scanPost);
-  }
+      }
   scanBtn.addEventListener('click', () => setScanOn(!scanOn));
 
   // Der Rahmen soll genau auf dem sichtbaren Bild liegen (object-fit: contain).
@@ -476,34 +475,85 @@
     slide.appendChild(info);
   }
 
-  async function scanSlide(slide, m) {
-    if (!m.src || (m.type !== 'image' && m.type !== 'video') || slide._scanBusy) return;
-    if (slide._scanDone) return;
+  // Video: Boxen frame-genau zum laufenden Bild (Zeitachse vom Scanner, jeder Frame ist geprüft).
+  function attachVideoBoxes(slide, r) {
+    const v = slide.querySelector('video');
+    if (!v || !r.timeline || !r.timeline.length) return;
+    const layer = el('div', 'scanbox');
+    slide.appendChild(layer);
+    fitBox(layer, slide, r.width, r.height);
+    new ResizeObserver(() => fitBox(layer, slide, r.width, r.height)).observe(slide);
+    const tl = r.timeline, names = r.names || [], tol = 1.5 / (r.fps || 30);
+    let shown = -2;
+    const draw = (t) => {
+      let lo = 0, hi = tl.length - 1, i = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (tl[mid][0] <= t + 0.0005) { i = mid; lo = mid + 1; } else hi = mid - 1; }
+      if (i >= 0 && t - tl[i][0] > tol) i = -1;
+      if (i === shown) return;
+      shown = i;
+      layer.textContent = '';
+      if (i < 0) return;
+      tl[i][1].forEach((d) => {
+        const name = names[d[0]] || '';
+        const b = el('div', 'bx' + (isCovered(name) ? ' cov' : ''));
+        b.style.left = d[2] * 100 + '%'; b.style.top = d[3] * 100 + '%';
+        b.style.width = d[4] * 100 + '%'; b.style.height = d[5] * 100 + '%';
+        b.appendChild(el('span', '', `${labelName(name)} ${pct(d[1])}`));
+        layer.appendChild(b);
+      });
+    };
+    const loop = () => {
+      if (!layer.isConnected) return;
+      if (scanOn) draw(v.currentTime);
+      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => loop());
+      else requestAnimationFrame(loop);
+    };
+    loop();
+    v.addEventListener('seeked', () => { shown = -2; });
+  }
+
+  // Ergebnis für ein Medium holen (läuft immer, auch bei ausgeschaltetem Knopf); p = Abstand zum sichtbaren Beitrag.
+  async function scanSlide(slide, m, p) {
+    if (!m.src || (m.type !== 'image' && m.type !== 'video') || slide._scanDone) return;
+    slide._scanP = Math.min(slide._scanP ?? 99, p);
+    if (slide._scanBusy) return;
     slide._scanBusy = true;
     try {
-      for (let i = 0; i < 400 && slide.isConnected && scanOn; i++) {
+      for (let i = 0; i < 600 && slide.isConnected; i++) {
         let r;
         try {
-          const res = await fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}`);
+          const res = await fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}&p=${slide._scanP}`);
           if (!res.ok) throw new Error('HTTP ' + res.status);
           r = await res.json();
         } catch { renderPending(slide, 'Scan nicht abrufbar'); await new Promise((ok) => setTimeout(ok, 5000)); continue; }
-        if (r.status === 'done') { slide._scanDone = true; renderScan(slide, m, r); return; }
+        if (r.status === 'done') {
+          slide._scanDone = true; renderScan(slide, m, r);
+          if (m.type === 'video') attachVideoBoxes(slide, r);
+          return;
+        }
         if (r.status === 'failed') { slide._scanDone = true; renderPending(slide, 'Scan fehlgeschlagen'); return; }
         if (r.status === 'off') { slide._scanDone = true; renderPending(slide, 'Scanner ist nicht eingerichtet'); return; }
         renderPending(slide, 'Scan läuft …');
-        await new Promise((ok) => setTimeout(ok, m.type === 'video' ? 4000 : 1500));
+        await new Promise((ok) => setTimeout(ok, m.type === 'video' ? 3000 : 1000));
       }
     } finally { slide._scanBusy = false; }
   }
 
-  function scanPost(sec) {
-    if (!scanOn || !sec._media) return;
-    sec.querySelectorAll('.slide').forEach((slide, i) => { if (sec._media[i]) scanSlide(slide, sec._media[i]); });
+  function scanPost(sec, p) {
+    if (!sec._media) return;
+    sec.querySelectorAll('.slide').forEach((slide, i) => { if (sec._media[i]) scanSlide(slide, sec._media[i], p); });
+  }
+
+  // Sobald ein Beitrag sichtbar ist, werden er und die nächsten 3 vorgeholt: Der Server scannt sie bevorzugt,
+  // und wenn du dort ankommst, ist alles schon da.
+  function scanAhead(sec) {
+    let s = sec;
+    for (let p = 0; p <= 3 && s && s.classList.contains('post'); p++, s = s.nextElementSibling) scanPost(s, p);
   }
 
   function onVisible(sec) {
     sec.dataset.visible = '1';
+    scanAhead(sec);
     sec.querySelectorAll('iframe[data-src]').forEach((f) => { if (!f.src) f.src = f.dataset.src; });
     updatePreload(sec);
     const v = activeVideo(sec);
