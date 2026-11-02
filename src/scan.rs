@@ -92,7 +92,7 @@ fn key(kind: &str, url: &str) -> String {
     let mut a = DefaultHasher::new();
     ("scan", kind, url).hash(&mut a);
     let mut b = DefaultHasher::new();
-    (url, kind, "scan", 7u8).hash(&mut b);
+    (url, kind, "scan", 8u8).hash(&mut b);
     format!("{:016x}{:016x}", a.finish(), b.finish())
 }
 

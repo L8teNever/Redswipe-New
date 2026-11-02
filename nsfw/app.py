@@ -17,6 +17,9 @@ from pydantic import BaseModel
 MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.25"))
 N_DET = int(os.environ.get("DETECTORS", "2"))
 ORT_THREADS = int(os.environ.get("ORT_THREADS", "3"))
+YOLO_ON = os.environ.get("YOLO", "1") != "0"
+YOLO_CONF = float(os.environ.get("YOLO_CONF", "0.35"))
+YOLO_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.environ.get("YOLO_FILE", "yolo11n.pt"))
 POSE_ON = os.environ.get("POSE", "1") != "0"
 POSE_CONF = float(os.environ.get("POSE_CONF", "0.65"))
 POSE_MAX = int(os.environ.get("POSE_MAX", "3"))
@@ -127,6 +130,51 @@ class Hands:
             pass
 
 
+_yolo = None
+_yolo_lock = threading.Lock()
+
+
+def yolo_persons(frames):
+    """YOLO (Ultralytics): Personen-Boxen pro Frame, normalisiert [(x1, y1, x2, y2), ...]. None, wenn YOLO aus ist."""
+    global _yolo
+    if not YOLO_ON:
+        return None
+    with _yolo_lock:
+        if _yolo is None:
+            import torch
+            from ultralytics import YOLO
+
+            torch.set_num_threads(max(1, ORT_THREADS - 1))
+            _yolo = YOLO(YOLO_MODEL)
+        res = _yolo.predict(frames, classes=[0], conf=YOLO_CONF, imgsz=640, verbose=False)
+    return [[tuple(float(v) for v in b) for b in r.boxes.xyxyn.tolist()] for r in res]
+
+
+def _in_boxes(pts, boxes, margin):
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+    for x1, y1, x2, y2 in boxes:
+        mx, my = (x2 - x1) * margin, (y2 - y1) * margin
+        if x1 - mx <= cx <= x2 + mx and y1 - my <= cy <= y2 + my:
+            return True
+    return False
+
+
+def limit_by_persons(boxes, poses, hands):
+    """Anzahl Personen (YOLO) begrenzt Pose und Hände: Pose nur in Personen-Boxen und höchstens so viele wie Personen,
+    Hände nur in/an Personen-Boxen und höchstens 2 pro Person. Ohne Person bleibt nichts übrig."""
+    if boxes is None:
+        return poses, hands
+    n = len(boxes)
+    if n == 0:
+        return [], []
+    poses = [p for p in poses if _in_boxes(p, boxes, 0.1)]
+    poses.sort(key=lambda p: -sum(q[2] for q in p))
+    hands = [h for h in hands if _in_boxes(h, boxes, 0.25)]
+    return poses[:n], hands[: 2 * n]
+
+
 class Req(BaseModel):
     path: str
     kind: str  # "image" | "video"
@@ -165,18 +213,27 @@ def scan_image(det, path):
     items = [norm(d, w, h) for d in res if d["score"] >= MIN_SCORE]
     items.sort(key=lambda d: -d["score"])
     out = {"kind": "image", "width": w, "height": h, "detections": items}
+    boxes = (yolo_persons([img]) or [None])[0]
+    poses, hs = [], []
     if POSE_ON:
         pose = Pose(False)
         try:
-            out["poses"] = pose.run(img)
+            poses = pose.run(img)
         finally:
             pose.close()
     if HANDS_ON:
         hands = Hands(False)
         try:
-            out["hands"] = hands.run(img)
+            hs = hands.run(img)
         finally:
             hands.close()
+    poses, hs = limit_by_persons(boxes, poses, hs)
+    if POSE_ON:
+        out["poses"] = poses
+    if HANDS_ON:
+        out["hands"] = hs
+    if boxes is not None:
+        out["persons"] = len(boxes)
     return out
 
 
@@ -212,15 +269,22 @@ def scan_video(det, path):
     pose = Pose(True) if POSE_ON else None
     hand_tl = []
     hands = Hands(True) if HANDS_ON else None
-    pose_ex = ThreadPoolExecutor(1) if (pose or hands) else None  # läuft parallel zu NudeNet, bleibt in Frame-Reihenfolge
+    pose_ex = ThreadPoolExecutor(1) if (pose or hands or YOLO_ON) else None
+    person_max, person_frames = 0, 0  # läuft parallel zu NudeNet, bleibt in Frame-Reihenfolge
     total = 0
     batch, idx = [], []
 
     def pose_batch(frames, ids):
-        return [(i / fps, pose.run(f, i / fps) if pose else [], hands.run(f, i / fps) if hands else []) for f, i in zip(frames, ids)]
+        boxes = yolo_persons(frames)
+        out = []
+        for k, (f, i) in enumerate(zip(frames, ids)):
+            b = boxes[k] if boxes else None
+            ps, hs = limit_by_persons(b, pose.run(f, i / fps) if pose else [], hands.run(f, i / fps) if hands else [])
+            out.append((i / fps, ps, hs, len(b) if b is not None else None))
+        return out
 
     def flush():
-        nonlocal batch, idx
+        nonlocal batch, idx, person_max, person_frames
         if not batch:
             return
         fut = pose_ex.submit(pose_batch, batch, idx) if pose_ex else None
@@ -245,7 +309,10 @@ def scan_video(det, path):
             if row:
                 timeline.append([round(t, 3), row])
         if fut:
-            for t, people, hs in fut.result():
+            for t, people, hs, npers in fut.result():
+                if npers:
+                    person_frames += 1
+                    person_max = max(person_max, npers)
                 if people:
                     pose_tl.append([round(t, 3), people])
                 if hs:
@@ -286,6 +353,9 @@ def scan_video(det, path):
     if pose:
         res["pose_timeline"] = pose_tl
         res["pose_frames"] = len(pose_tl)
+    if YOLO_ON:
+        res["persons_max"] = person_max
+        res["person_frames"] = person_frames
     if hands:
         res["hand_timeline"] = hand_tl
         res["hand_frames"] = len(hand_tl)
