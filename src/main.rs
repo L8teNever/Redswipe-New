@@ -120,13 +120,13 @@ fn err(code: StatusCode, msg: impl Into<String>) -> Response {
 }
 
 async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Response {
-    let Some(sub) = p.q.as_deref().and_then(parse_subreddit) else {
+    let Some(source) = parse_source(p.q.as_deref().unwrap_or("")) else {
         return err(
             StatusCode::BAD_REQUEST,
-            "Kein gültiger Subreddit-Link (z. B. https://www.reddit.com/r/aww/)",
+            "Kein gültiger Reddit-Link (leer = Startseite, sonst z. B. https://www.reddit.com/r/aww/)",
         );
     };
-    let sort = p.sort.unwrap_or_else(|| "hot".into());
+    let sort = p.sort.unwrap_or_else(|| "best".into());
     if !SORTS.contains(&sort.as_str()) {
         return err(StatusCode::BAD_REQUEST, "Unbekannte Sortierung");
     }
@@ -141,7 +141,12 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
         }
     }
 
-    let mut url = format!("https://www.reddit.com/r/{sub}/{sort}.json?limit=25&raw_json=1");
+    // Startseite = der personalisierte Feed des eingeloggten Browsers (wie im Addon).
+    let base = match &source {
+        Source::Home => format!("https://www.reddit.com/{sort}.json"),
+        Source::Sub(sub) => format!("https://www.reddit.com/r/{sub}/{sort}.json"),
+    };
+    let mut url = format!("{base}?limit=25&raw_json=1");
     if sort == "top" {
         url.push_str(&format!("&t={t}"));
     }
@@ -245,25 +250,41 @@ async fn media(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<M
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-/// Akzeptiert "https://www.reddit.com/r/aww/", "r/aww", "/r/aww" oder "aww".
-fn parse_subreddit(input: &str) -> Option<String> {
+#[derive(Debug, PartialEq)]
+enum Source {
+    /// Startseite des eingeloggten Accounts.
+    Home,
+    /// Ein Subreddit oder mehrere mit "+" verbundene.
+    Sub(String),
+}
+
+/// Akzeptiert "" / "home" / "https://www.reddit.com/" (Startseite) sowie
+/// "https://www.reddit.com/r/aww/", "r/aww", "/r/aww", "aww" und "r/aww+cats".
+fn parse_source(input: &str) -> Option<Source> {
     let s = input.trim();
     let name = if s.contains("reddit.com") {
         let rest = s.split_once("reddit.com")?.1;
         let mut segs = rest.split(['/', '?', '#']).filter(|x| !x.is_empty());
-        if segs.next()? != "r" {
-            return None;
+        match segs.next() {
+            None => return Some(Source::Home),
+            Some(first) if SORTS.contains(&first) => return Some(Source::Home),
+            Some("r") => segs.next()?.to_string(),
+            Some(_) => return None,
         }
-        segs.next()?.to_string()
+    } else if s.is_empty() || s.eq_ignore_ascii_case("home") {
+        return Some(Source::Home);
     } else {
         s.strip_prefix("r/")
             .or_else(|| s.strip_prefix("/r/"))
             .unwrap_or(s)
+            .trim_end_matches('/')
             .to_string()
     };
-    let valid = (1..=21).contains(&name.len())
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    valid.then_some(name)
+    let valid = !name.is_empty()
+        && name.split('+').all(|part| {
+            (1..=21).contains(&part.len()) && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+    valid.then_some(Source::Sub(name))
 }
 
 fn parse_listing(v: &Value) -> (Vec<Post>, Option<String>) {
@@ -282,7 +303,20 @@ fn parse_listing(v: &Value) -> (Vec<Post>, Option<String>) {
 
 /// Gibt nur Beiträge mit mindestens einem Medium zurück.
 fn to_post(d: &Value) -> Option<Post> {
-    let media = extract_media(d);
+    // Beworbene Beiträge werden wie im Addon übersprungen.
+    if d["promoted"].as_bool() == Some(true)
+        || d["is_created_from_ads_ui"].as_bool() == Some(true)
+        || d["promoted_by"].is_string()
+    {
+        return None;
+    }
+    let mut media = extract_media(d);
+    if media.is_empty() {
+        // Crossposts tragen das Medium im Original-Beitrag.
+        if let Some(parent) = d["crosspost_parent_list"].get(0).filter(|p| p.is_object()) {
+            media = extract_media(parent);
+        }
+    }
     if media.is_empty() {
         return None;
     }
@@ -364,6 +398,12 @@ fn extract_media(d: &Value) -> Vec<Media> {
     } else if path.ends_with(".gifv") {
         let mp4 = &url[..url.len() - ".gifv".len()];
         out.push(video(&format!("{mp4}.mp4"), Vec::new(), &Value::Null));
+    } else if let Some(fb) = d["preview"]["reddit_video_preview"]["fallback_url"].as_str() {
+        // Animierte Beiträge (RedGIFs, Giphy, …): Reddit hostet eine stumme MP4-Vorschau.
+        out.push(video(fb, Vec::new(), &d["preview"]["reddit_video_preview"]));
+    } else if let Some(id) = redgifs_id(url) {
+        // Ohne Vorschau: RedGIFs-Player einbetten, wie das Addon es mit dem iframe macht.
+        out.push(embed(&format!("https://www.redgifs.com/ifr/{id}")));
     } else if d["post_hint"].as_str() == Some("image") {
         let src = &d["preview"]["images"][0]["source"];
         if let Some(u) = src["url"].as_str() {
@@ -393,6 +433,21 @@ fn video(raw: &str, audio: Vec<String>, dims: &Value) -> Media {
     }
 }
 
+fn embed(url: &str) -> Media {
+    Media { kind: "embed", url: url.to_string(), width: None, height: None, audio: Vec::new() }
+}
+
+/// ID aus "https://www.redgifs.com/watch/<id>" (nur Buchstaben/Ziffern, sonst None).
+fn redgifs_id(url: &str) -> Option<String> {
+    let u = Url::parse(url).ok()?;
+    let host = u.host_str()?;
+    if host != "redgifs.com" && !host.ends_with(".redgifs.com") {
+        return None;
+    }
+    let id = u.path_segments()?.filter(|x| !x.is_empty()).last()?.to_lowercase();
+    (!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric())).then_some(id)
+}
+
 fn proxy(raw: &str) -> String {
     format!("/api/media?url={}", urlencoding::encode(&raw.replace("&amp;", "&")))
 }
@@ -402,17 +457,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn subreddit_parsing() {
-        assert_eq!(parse_subreddit("https://www.reddit.com/r/aww/").as_deref(), Some("aww"));
-        assert_eq!(parse_subreddit("https://old.reddit.com/r/EarthPorn/top?t=week").as_deref(), Some("EarthPorn"));
-        assert_eq!(parse_subreddit("r/aww").as_deref(), Some("aww"));
-        assert_eq!(parse_subreddit("/r/aww").as_deref(), Some("aww"));
-        assert_eq!(parse_subreddit("aww").as_deref(), Some("aww"));
-        assert_eq!(parse_subreddit("https://example.com/r/aww"), None);
-        assert_eq!(parse_subreddit("https://www.reddit.com/user/x"), None);
-        assert_eq!(parse_subreddit("a b"), None);
-        assert_eq!(parse_subreddit(""), None);
-        assert_eq!(parse_subreddit(&"x".repeat(22)), None);
+    fn source_parsing() {
+        let sub = |n: &str| Some(Source::Sub(n.to_string()));
+        assert_eq!(parse_source("https://www.reddit.com/r/aww/"), sub("aww"));
+        assert_eq!(parse_source("https://old.reddit.com/r/EarthPorn/top?t=week"), sub("EarthPorn"));
+        assert_eq!(parse_source("r/aww"), sub("aww"));
+        assert_eq!(parse_source("/r/aww"), sub("aww"));
+        assert_eq!(parse_source("aww"), sub("aww"));
+        assert_eq!(parse_source("r/aww+cats"), sub("aww+cats"));
+        assert_eq!(parse_source(""), Some(Source::Home));
+        assert_eq!(parse_source("home"), Some(Source::Home));
+        assert_eq!(parse_source("https://www.reddit.com/"), Some(Source::Home));
+        assert_eq!(parse_source("https://www.reddit.com/hot/?redswipe=app"), Some(Source::Home));
+        assert_eq!(parse_source("https://example.com/r/aww"), None);
+        assert_eq!(parse_source("https://www.reddit.com/user/x"), None);
+        assert_eq!(parse_source("a b"), None);
+        assert_eq!(parse_source("aww++cats"), None);
+        assert_eq!(parse_source(&"x".repeat(22)), None);
+    }
+
+    #[test]
+    fn skips_ads_and_handles_redgifs_and_crossposts() {
+        let ad = json!({ "id": "a", "promoted": true, "url": "https://i.redd.it/a.jpg" });
+        assert!(to_post(&ad).is_none());
+
+        let rg = json!({ "id": "r", "url": "https://www.redgifs.com/watch/SomeId" });
+        let p = to_post(&rg).unwrap();
+        assert_eq!(p.media[0].kind, "embed");
+        assert_eq!(p.media[0].url, "https://www.redgifs.com/ifr/someid");
+
+        let rg_prev = json!({ "id": "r2", "url": "https://www.redgifs.com/watch/x",
+            "preview": { "reddit_video_preview": { "fallback_url": "https://v.redd.it/q/DASH_720.mp4", "width": 1, "height": 2 } } });
+        assert_eq!(to_post(&rg_prev).unwrap().media[0].kind, "video");
+
+        let xp = json!({ "id": "x", "url": "https://www.reddit.com/r/a/comments/1/",
+            "crosspost_parent_list": [ { "id": "o", "url": "https://i.redd.it/o.png" } ] });
+        assert_eq!(to_post(&xp).unwrap().media[0].kind, "image");
+        assert!(redgifs_id("https://evil.com/watch/abc").is_none());
     }
 
     #[test]

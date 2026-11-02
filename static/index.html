@@ -20,6 +20,10 @@
     border: 1px solid #444; background: #222; color: #fff; }
   #topbar button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
   #topbar select[hidden] { display: none; }
+  #topbar.collapsed { display: none; }
+  #menuBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 10px; z-index: 11; width: 44px; height: 44px;
+    border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; }
+  #menuBtn[hidden] { display: none; }
 
   /* VPN-Dialog */
   #vpn { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
@@ -50,22 +54,21 @@
   .slide { flex: 0 0 100%; scroll-snap-align: center; height: 100%; position: relative; display: flex;
     align-items: center; justify-content: center; }
   .media { width: 100%; height: 100%; object-fit: contain; display: block; }
-  .nsfw .media { filter: blur(40px); }
 
   .progress { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; z-index: 4; pointer-events: none; background: rgba(255,255,255,.15); }
   .progress .bar { height: 100%; width: 0; background: #ff4500; }
 
-  .info { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 56px 14px 26px; pointer-events: none;
-    background: linear-gradient(to bottom, rgba(0,0,0,0), #000 85%); }
-  .ititle { font-size: 16px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 6px; }
-  .imeta { font-size: 13px; color: #bbb; margin-bottom: 6px; }
-  .info a { color: #ff8a5c; font-size: 13px; pointer-events: auto; }
+  /* Wie im Addon: nur "r/Subreddit · u/Autor" unten links, Medium füllt die ganze Höhe */
+  .info { position: absolute; left: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 3; pointer-events: none; }
+  .info a { display: inline-block; max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; color: #fff; text-decoration: none; padding: 5px 10px; border-radius: 12px;
+    background: rgba(0,0,0,.55); pointer-events: auto; }
+  .embed { width: 100%; height: 100%; border: 0; background: #000; }
 
   .dots { position: absolute; left: 0; right: 0; bottom: 6px; z-index: 4; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
   .dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.35); }
   .dots span.on { background: #fff; }
-  .counter { position: absolute; top: 64px; right: 12px; z-index: 4; font-size: 13px; padding: 3px 8px; border-radius: 10px;
+  .counter { position: absolute; top: calc(14px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 4; font-size: 13px; padding: 3px 8px; border-radius: 10px;
     background: rgba(0,0,0,.55); pointer-events: none; }
 
   .arrow { display: none; position: absolute; top: 50%; transform: translateY(-50%); z-index: 4; width: 42px; height: 42px;
@@ -73,7 +76,7 @@
   .arrow.l { left: 8px; } .arrow.r { right: 8px; }
   @media (hover: hover) { .arrow { display: flex; } }
 
-  .sound { position: absolute; right: 14px; bottom: 150px; z-index: 5; width: 46px; height: 46px; border-radius: 50%;
+  .sound { position: absolute; right: 14px; bottom: 90px; z-index: 5; width: 46px; height: 46px; border-radius: 50%;
     border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 20px; }
   .sound[hidden] { display: none; }
 
@@ -81,8 +84,6 @@
     transition: opacity .3s; pointer-events: none; z-index: 2; text-shadow: 0 0 12px rgba(0,0,0,.6); }
   .pauseicon.show { opacity: .85; }
 
-  .nsfw-btn { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; font-size: 16px;
-    padding: 12px 20px; border-radius: 24px; border: 1px solid #fff; background: rgba(0,0,0,.6); color: #fff; }
 
   /* Zustände (Hinweis, Laden, Fehler, leer) */
   .state { height: 100dvh; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center;
@@ -101,15 +102,16 @@
 <div id="topbar">
   <form id="form" autocomplete="off">
     <input id="q" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
-      placeholder="Reddit-Link einfügen, z. B. https://www.reddit.com/r/aww/">
+      placeholder="leer = deine Startseite, oder Link wie https://www.reddit.com/r/aww/">
     <button class="primary" type="submit">Laden</button>
+    <button id="homeBtn" type="button" title="Startseite (dein Feed)">Start</button>
     <button id="vpnBtn" type="button" aria-label="VPN-Einstellungen" title="VPN-Einstellungen">VPN</button>
     <select id="sort" aria-label="Sortierung">
+      <option value="best">Best</option>
       <option value="hot">Hot</option>
       <option value="new">Neu</option>
       <option value="top">Top</option>
       <option value="rising">Rising</option>
-      <option value="best">Best</option>
     </select>
     <select id="t" aria-label="Zeitraum" hidden>
       <option value="hour">Stunde</option>
@@ -121,6 +123,8 @@
     </select>
   </form>
 </div>
+
+<button id="menuBtn" type="button" aria-label="Menü" hidden>☰</button>
 
 <div id="vpn" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
   <div class="card">
@@ -151,8 +155,9 @@
 
 <div id="feed">
   <div id="hint" class="state">
-    <p>Füge oben einen Subreddit-Link ein und wische dich durch die Beiträge.</p>
+    <p>Lädt deine Startseite … Oder gib oben einen Subreddit-Link ein.</p>
     <div class="examples">
+      <button class="ex" type="button" data-q="">Startseite</button>
       <button class="ex" type="button" data-q="https://www.reddit.com/r/aww/">r/aww</button>
       <button class="ex" type="button" data-q="https://www.reddit.com/r/EarthPorn/">r/EarthPorn</button>
       <button class="ex" type="button" data-q="https://www.reddit.com/r/interestingasfuck/">r/interestingasfuck</button>
@@ -279,7 +284,7 @@
 
   function showEmpty(withMore) {
     const box = el('div', 'state');
-    box.appendChild(el('p', '', 'In diesem Subreddit gibt es auf dieser Seite keine Bilder oder Videos.'));
+    box.appendChild(el('p', '', 'Auf dieser Seite gibt es keine Bilder oder Videos.'));
     if (withMore && after) {
       const btn = el('button', '', 'Weiter laden');
       btn.type = 'button';
@@ -367,6 +372,7 @@
   // ---------- Sichtbarkeit: Video-Logik ----------
   function onVisible(sec) {
     sec.dataset.visible = '1';
+    sec.querySelectorAll('iframe[data-src]').forEach((f) => { if (!f.src) f.src = f.dataset.src; });
     updatePreload(sec);
     const v = activeVideo(sec);
     if (v) playVideo(v);
@@ -408,7 +414,7 @@
     if (sec._dots) {
       sec._dots.querySelectorAll('span').forEach((d, i) => d.classList.toggle('on', i === idx));
     }
-    if (sec._counter) sec._counter.textContent = `${idx + 1}/${car.children.length}`;
+    if (sec._counter) sec._counter.textContent = `${idx + 1} / ${car.children.length}`;
 
     if (sec.dataset.visible === '1') playVideo(v);
     updatePreload(sec);
@@ -460,6 +466,15 @@
       });
       slide.appendChild(v);
       slide.appendChild(icon);
+    } else if (m.type === 'embed') {
+      const f = document.createElement('iframe');
+      f.className = 'embed';
+      f.allow = 'autoplay; fullscreen';
+      f.setAttribute('allowfullscreen', '');
+      f.referrerPolicy = 'no-referrer';
+      f.dataset.src = m.url;
+      if (eager) f.src = m.url;
+      slide.appendChild(f);
     } else {
       const img = document.createElement('img');
       img.className = 'media';
@@ -497,7 +512,7 @@
       sec.appendChild(dots);
       sec._dots = dots;
 
-      const counter = el('div', 'counter', `1/${p.media.length}`);
+      const counter = el('div', 'counter', `1 / ${p.media.length}`);
       sec.appendChild(counter);
       sec._counter = counter;
 
@@ -527,30 +542,14 @@
       sec._sound = sb;
     }
 
-    // Info-Leiste
+    // Info: nur "r/Subreddit · u/Autor" (Link zum Beitrag), wie im Addon
     const info = el('div', 'info');
-    info.appendChild(el('div', 'ititle', p.title));
-    info.appendChild(el('div', 'imeta',
-      `r/${p.subreddit} · u/${p.author} · ▲ ${fmt(p.score)} · 💬 ${fmt(p.comments)}`));
-    const link = el('a', '', 'Auf Reddit öffnen');
+    const link = el('a', '', `r/${p.subreddit} · u/${p.author}`);
     link.href = p.permalink;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     info.appendChild(link);
     sec.appendChild(info);
-
-    // NSFW: verschwommen, bis der Nutzer tippt
-    if (p.nsfw) {
-      sec.classList.add('nsfw');
-      const nb = el('button', 'nsfw-btn', 'NSFW anzeigen');
-      nb.type = 'button';
-      nb.addEventListener('click', (e) => {
-        e.stopPropagation();
-        sec.classList.remove('nsfw');
-        nb.remove();
-      });
-      sec.appendChild(nb);
-    }
 
     car.addEventListener('scroll', () => onCarouselScroll(car, sec), { passive: true });
     feed.appendChild(sec);
@@ -611,7 +610,6 @@
 
   function load() {
     const q = input.value.trim();
-    if (!q) { input.focus(); return; }
     cur = { q, sort: sortSel.value, t: timeSel.value };
     token++;
     busy = false;
@@ -628,7 +626,23 @@
     if (cur.sort === 'top') params.set('t', cur.t);
     history.replaceState(null, '', '?' + params.toString());
 
+    collapseBar(true);
     runLoad(token);
+  }
+
+  // Leiste einklappen, damit das Medium die ganze Höhe hat (☰ blendet sie wieder ein)
+  const topbar = $('#topbar'), menuBtn = $('#menuBtn');
+  function collapseBar(on) {
+    topbar.classList.toggle('collapsed', on);
+    menuBtn.hidden = !on;
+  }
+  menuBtn.addEventListener('click', () => collapseBar(false));
+  $('#homeBtn').addEventListener('click', () => { input.value = ''; load(); });
+
+  // Echter Vollbildmodus, wo der Browser ihn erlaubt (iPhone-Safari lehnt ab, dann geht es normal weiter)
+  function goFullscreen() {
+    const de = document.documentElement;
+    if (!document.fullscreenElement && de.requestFullscreen) de.requestFullscreen().catch(() => {});
   }
 
   // Endlos-Scrollen: nahe an den letzten 5 Beiträgen nachladen
@@ -640,22 +654,23 @@
     if (idx >= posts.length - 5) runLoad(token);
   }, { passive: true });
 
-  form.addEventListener('submit', (e) => { e.preventDefault(); load(); });
+  form.addEventListener('submit', (e) => { e.preventDefault(); goFullscreen(); load(); });
 
   sortSel.addEventListener('change', () => {
     timeSel.hidden = sortSel.value !== 'top';
     store.set('rs-sort', sortSel.value);
-    if (input.value.trim()) load();
+    load();
   });
   timeSel.addEventListener('change', () => {
     store.set('rs-t', timeSel.value);
-    if (input.value.trim()) load();
+    load();
   });
 
   feed.addEventListener('click', (e) => {
     const b = e.target.closest('button.ex');
     if (!b) return;
     input.value = b.dataset.q;
+    goFullscreen();
     load();
   });
 
@@ -687,10 +702,8 @@
   if (params.get('t') && [...timeSel.options].some((o) => o.value === params.get('t'))) {
     timeSel.value = params.get('t');
   }
-  if (params.get('q')) {
-    input.value = params.get('q');
-    load();
-  }
+  if (params.has('q')) input.value = params.get('q');
+  load(); // wie das Addon: sofort starten (leer = Startseite)
 })();
 </script>
 </body>
