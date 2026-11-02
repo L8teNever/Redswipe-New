@@ -93,7 +93,7 @@ pub async fn follow(headers: HeaderMap, Json(b): Json<FollowBody>) -> Response {
         r#"(async()=>{{const c={CSRF};if(!c)return{{ok:false,error:'Kein CSRF-Token – im Browser einloggen'}};
 try{{const f=new URLSearchParams();f.append('action',{action:?});f.append('sr_name',{sr:?});f.append('csrf_token',c);
 const r=await fetch('https://www.reddit.com/api/subscribe',{{method:'POST',headers:{{'content-type':'application/x-www-form-urlencoded','x-csrf-token':c}},credentials:'include',body:f.toString()}});
-return r.ok?{{ok:true}}:{{ok:false,error:'Reddit antwortet mit HTTP '+r.status}}}}catch(e){{return{{ok:false,error:String(e)}}}}}})()"#
+if(r.ok)return{{ok:true}};const t=(await r.text()).slice(0,160);return{{ok:false,error:'Reddit antwortet mit HTTP '+r.status+': '+t}}}}catch(e){{return{{ok:false,error:String(e)}}}}}})()"#
     );
     run(expr).await
 }
