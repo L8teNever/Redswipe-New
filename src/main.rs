@@ -3,7 +3,7 @@ use std::{env, time::Duration};
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -11,14 +11,20 @@ use axum::{
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    set_header::SetResponseHeader,
+};
 
 mod actions;
 mod browser;
 mod login;
 pub mod nipples;
 mod optimize;
+mod pool;
+mod redgifs;
 mod scan;
+mod taste;
 mod vpn;
 
 // Reddit antwortet auf unbekannte Clients oft mit 403/429, daher ein Browser-User-Agent.
@@ -32,6 +38,7 @@ const ALLOWED_HOSTS: &[&str] = &[
     "external-preview.redd.it",
     "v.redd.it",
     "i.imgur.com",
+    "media.redgifs.com",
 ];
 
 #[derive(Clone)]
@@ -68,8 +75,13 @@ pub struct Post {
     comments: i64,
     permalink: String,
     nsfw: bool,
+    /// Flair und Beschreibung (gekürzt): fließen in die Geschmacks-Bewertung ein.
+    flair: String,
+    text: String,
     /// Dein aktueller Vote: "up", "down" oder "none".
     vote: &'static str,
+    /// Herkunft: "reddit" oder "redgifs" (Nischen-Clips im Vorrat).
+    origin: &'static str,
     media: Vec<Media>,
 }
 
@@ -77,8 +89,10 @@ pub struct Post {
 pub struct Media {
     #[serde(rename = "type")]
     kind: &'static str,
-    /// Bereits auf /api/media umgeschrieben.
+    /// Bereits auf /api/media oder /api/opt umgeschrieben.
     url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    poster: Option<String>,
     width: Option<i64>,
     height: Option<i64>,
     /// Kandidaten für die Tonspur (Reddit-Videos haben Ton in einer eigenen Datei).
@@ -104,6 +118,10 @@ async fn main() {
     tokio::spawn(vpn::keep_endpoint_fresh());
     tokio::spawn(optimize::cleanup_loop());
 
+    let state = AppState { client };
+    // Gescannt-Modus: Vorrat im Hintergrund füllen und scannen, auch wenn niemand die Seite offen hat
+    pool::start(state.clone());
+
     let index = format!("{static_dir}/index.html");
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
@@ -115,6 +133,16 @@ async fn main() {
         .route("/api/scan/workers", post(scan::set_workers).layer(DefaultBodyLimit::max(1024)))
         .route("/api/scan/parts", post(scan::set_parts).layer(DefaultBodyLimit::max(1024)))
         .route("/api/scan/focus", post(scan::focus).layer(DefaultBodyLimit::max(16 * 1024)))
+        .route("/api/taste", get(taste::stats))
+        .route("/api/taste/score", post(taste::score).layer(taste::limit()))
+        .route("/api/taste/event", post(taste::event).layer(taste::limit()))
+        .route("/api/taste/reset", post(taste::reset))
+        .route("/api/pool", post(pool::next).layer(DefaultBodyLimit::max(64 * 1024)))
+        .route("/api/pool/stats", get(pool::stats))
+        .route("/api/pool/redgifs", get(pool::rg_get).post(pool::rg_set).layer(DefaultBodyLimit::max(8 * 1024)))
+        .route("/api/redgifs/clip", get(rg_clip))
+        .route("/api/pool/seen", post(pool::seen).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/pool/source", post(pool::set_source).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/api/vote", post(actions::vote).layer(DefaultBodyLimit::max(1024)))
         .route("/api/follow", post(actions::follow).layer(DefaultBodyLimit::max(1024)))
         .route(
@@ -122,8 +150,13 @@ async fn main() {
             get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route("/api/vpn", get(vpn::status).post(vpn::upload).layer(DefaultBodyLimit::max(16 * 1024)))
-        .fallback_service(ServeDir::new(&static_dir).fallback(ServeFile::new(index)))
-        .with_state(AppState { client });
+        .fallback_service(SetResponseHeader::if_not_present(
+            ServeDir::new(&static_dir).fallback(ServeFile::new(index)),
+            header::CACHE_CONTROL,
+            // Seite immer neu prüfen (per ETag), damit Updates sofort ankommen
+            HeaderValue::from_static("no-cache"),
+        ))
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port.parse::<u16>().unwrap_or(8080)))
         .await
@@ -158,50 +191,71 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
         }
     }
 
+    let url = listing_url(&source, &sort, &t, after.as_deref());
+    match fetch_listing(&st, &url).await {
+        Ok((mut posts, after)) => {
+            // Schon gesehene Beiträge nicht noch einmal zeigen
+            posts.retain(|p| !pool::is_seen(&p.id));
+            scan::enqueue_posts(&st, &posts);
+            Json(FeedResponse { posts, after }).into_response()
+        }
+        Err((code, m)) => err(code, m),
+    }
+}
+
+/// Listing-Adresse für Quelle, Sortierung, Zeitraum und Seiten-Cursor.
+fn listing_url(source: &Source, sort: &str, t: &str, after: Option<&str>) -> String {
     // Startseite = der personalisierte Feed des eingeloggten Browsers (wie im Addon).
-    let base = match &source {
+    let base = match source {
         Source::Home => format!("https://www.reddit.com/{sort}.json"),
         Source::Sub(sub) => format!("https://www.reddit.com/r/{sub}/{sort}.json"),
+        // Multireddits kennen kein "best" (nur hot, new, top, rising, controversial).
+        Source::Multi(user, name) => {
+            let sort = if sort == "best" { "hot" } else { sort };
+            format!("https://www.reddit.com/user/{user}/m/{name}/{sort}.json")
+        }
     };
     let mut url = format!("{base}?limit=25&raw_json=1");
     if sort == "top" {
         url.push_str(&format!("&t={t}"));
     }
-    if let Some(a) = &after {
+    if let Some(a) = after {
         url.push_str(&format!("&after={a}"));
     }
+    url
+}
 
-    // Bevorzugt: der eingeloggte Browser (Chromium). Nur wenn er nicht erreichbar ist, geht es mit dem Cookie weiter.
-    if browser::configured() {
-        match browser::fetch_text(&url).await {
+/// Eine Listing-Seite von Reddit holen: bevorzugt über den eingeloggten Browser, sonst mit dem Cookie.
+async fn fetch_listing(st: &AppState, url: &str) -> Result<(Vec<Post>, Option<String>), (StatusCode, String)> {
+    let (mut posts, after) = if browser::configured() {
+        match browser::fetch_text(url).await {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
-                Ok(value) => {
-                    let (posts, after) = parse_listing(&value);
-                    scan::enqueue_posts(&st, &posts);
-                    return Json(FeedResponse { posts, after }).into_response();
-                }
-                Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}")),
+                Ok(value) => parse_listing(&value),
+                Err(e) => return Err((StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}"))),
             },
             Err(browser::BrowserError::NeedsLogin(m)) => {
-                return err(
+                return Err((
                     StatusCode::BAD_GATEWAY,
                     format!("{m}. Bitte im Browser neu bei Reddit einloggen (https://redswipe-login.kulbarts.com)."),
-                );
+                ));
             }
-            Err(browser::BrowserError::Failed(m)) => return err(StatusCode::BAD_GATEWAY, m),
-            Err(browser::BrowserError::Unavailable(_)) => {}
+            Err(browser::BrowserError::Failed(m)) => return Err((StatusCode::BAD_GATEWAY, m)),
+            Err(browser::BrowserError::Unavailable(_)) => fetch_listing_cookie(st, url).await?,
         }
-    }
+    } else {
+        fetch_listing_cookie(st, url).await?
+    };
+    resolve_redgifs_embeds(st, &mut posts).await;
+    Ok((posts, after))
+}
 
+async fn fetch_listing_cookie(st: &AppState, url: &str) -> Result<(Vec<Post>, Option<String>), (StatusCode, String)> {
     let cookie = login::load();
-    let mut req = st.client.get(&url).timeout(Duration::from_secs(20));
+    let mut req = st.client.get(url).timeout(Duration::from_secs(20));
     if let Some(c) = &cookie {
         req = req.header(header::COOKIE, c.as_str());
     }
-    let resp = match req.send().await {
-        Ok(r) => r,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Reddit nicht erreichbar: {e}")),
-    };
+    let resp = req.send().await.map_err(|e| (StatusCode::BAD_GATEWAY, format!("Reddit nicht erreichbar: {e}")))?;
     let status = resp.status();
     if !status.is_success() {
         let hint = if cookie.is_some() {
@@ -209,23 +263,60 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
         } else {
             " – Reddit verlangt einen Login (Dialog \"VPN\" → Reddit-Login)."
         };
-        return err(
-            StatusCode::BAD_GATEWAY,
-            format!("Reddit hat die Anfrage abgelehnt (HTTP {}){hint}", status.as_u16()),
-        );
+        return Err((StatusCode::BAD_GATEWAY, format!("Reddit hat die Anfrage abgelehnt (HTTP {}){hint}", status.as_u16())));
     }
-    let value: Value = match resp.json().await {
-        Ok(v) => v,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}")),
-    };
+    let value: Value = resp.json().await.map_err(|e| (StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}")))?;
+    Ok(parse_listing(&value))
+}
 
-    let (posts, after) = parse_listing(&value);
-    scan::enqueue_posts(&st, &posts);
-    Json(FeedResponse { posts, after }).into_response()
+/// Eingebettete RedGIFs-Clips ohne Reddit-Vorschau direkt per RedGIFs-API als echtes MP4 auflösen.
+async fn resolve_redgifs_embeds(st: &AppState, posts: &mut [Post]) {
+    for post in posts.iter_mut() {
+        for m in post.media.iter_mut() {
+            if m.kind == "embed" {
+                if let Some(id) = m.url.strip_prefix("https://www.redgifs.com/ifr/") {
+                    if let Ok((video_url, dims)) = redgifs::fetch_clip(st, id).await {
+                        m.kind = "video";
+                        m.src = video_url.clone();
+                        m.url = proxy(&video_url);
+                        m.poster = dims["poster"].as_str().or_else(|| dims["thumbnail"].as_str()).map(proxy);
+                        m.width = dims["width"].as_i64();
+                        m.height = dims["height"].as_i64();
+                        m.audio = Vec::new();
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RgClipQuery {
+    id: String,
+}
+
+async fn rg_clip(State(st): State<AppState>, Query(q): Query<RgClipQuery>) -> Response {
+    let clean = q.id.trim();
+    let id = clean
+        .strip_prefix("rg_")
+        .unwrap_or(clean)
+        .rsplit('/')
+        .next()
+        .unwrap_or(clean);
+    match redgifs::fetch_clip(&st, id).await {
+        Ok((url, dims)) => {
+            let poster = dims["poster"].as_str().or_else(|| dims["thumbnail"].as_str()).map(proxy);
+            Json(json!({ "url": proxy(&url), "src": url, "poster": poster, "width": dims["width"], "height": dims["height"] })).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e),
+    }
 }
 
 pub fn media_allowed(url: &Url) -> bool {
-    url.scheme() == "https" && url.host_str().is_some_and(|h| ALLOWED_HOSTS.contains(&h))
+    url.scheme() == "https"
+        && url
+            .host_str()
+            .is_some_and(|h| ALLOWED_HOSTS.contains(&h) || h == "redgifs.com" || h.ends_with(".redgifs.com"))
 }
 
 async fn media(State(st): State<AppState>, headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response {
@@ -277,6 +368,8 @@ enum Source {
     Home,
     /// Ein Subreddit oder mehrere mit "+" verbundene.
     Sub(String),
+    /// Eine Multireddit ("Custom Feed") eines Nutzers: /user/<Nutzer>/m/<Name>/.
+    Multi(String, String),
 }
 
 /// Akzeptiert "" / "home" / "https://www.reddit.com/" (Startseite) sowie
@@ -290,10 +383,14 @@ fn parse_source(input: &str) -> Option<Source> {
             None => return Some(Source::Home),
             Some(first) if SORTS.contains(&first) => return Some(Source::Home),
             Some("r") => segs.next()?.to_string(),
+            Some("user" | "u") => return parse_multi(segs.next()?, segs.next(), segs.next()),
             Some(_) => return None,
         }
     } else if s.is_empty() || s.eq_ignore_ascii_case("home") {
         return Some(Source::Home);
+    } else if let Some(rest) = s.trim_start_matches('/').strip_prefix("user/").or_else(|| s.trim_start_matches('/').strip_prefix("u/")) {
+        let mut segs = rest.split(['/', '?', '#']).filter(|x| !x.is_empty());
+        return parse_multi(segs.next()?, segs.next(), segs.next());
     } else {
         s.strip_prefix("r/")
             .or_else(|| s.strip_prefix("/r/"))
@@ -306,6 +403,17 @@ fn parse_source(input: &str) -> Option<Source> {
             (1..=21).contains(&part.len()) && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         });
     valid.then_some(Source::Sub(name))
+}
+
+/// "/user/<Nutzer>/m/<Name>/": Multireddit. Alles andere unter /user/ (Profil, Beiträge) ist keine Quelle.
+fn parse_multi(user: &str, m: Option<&str>, name: Option<&str>) -> Option<Source> {
+    if m? != "m" {
+        return None;
+    }
+    let name = name?;
+    let user_ok = (3..=20).contains(&user.len()) && user.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let name_ok = (1..=50).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    (user_ok && name_ok).then(|| Source::Multi(user.to_string(), name.to_string()))
 }
 
 fn parse_listing(v: &Value) -> (Vec<Post>, Option<String>) {
@@ -353,11 +461,14 @@ fn to_post(d: &Value) -> Option<Post> {
             d["permalink"].as_str().unwrap_or_default()
         ),
         nsfw: d["over_18"].as_bool().unwrap_or(false),
+        flair: d["link_flair_text"].as_str().unwrap_or_default().to_string(),
+        text: d["selftext"].as_str().unwrap_or_default().chars().take(400).collect(),
         vote: match d["likes"].as_bool() {
             Some(true) => "up",
             Some(false) => "down",
             None => "none",
         },
+        origin: "reddit",
         media,
     })
 }
@@ -387,7 +498,8 @@ fn extract_media(d: &Value) -> Vec<Media> {
                 }
                 Some("AnimatedImage") => {
                     if let Some(mp4) = m["s"]["mp4"].as_str() {
-                        out.push(video(mp4, Vec::new(), &m["s"]));
+                        let poster = m["s"]["u"].as_str().map(|u| proxy(&u.replace("&amp;", "&")));
+                        out.push(video(mp4, Vec::new(), &m["s"], poster));
                     } else if let Some(gif) = m["s"]["gif"].as_str() {
                         out.push(image(gif, &m["s"]));
                     }
@@ -413,7 +525,8 @@ fn extract_media(d: &Value) -> Vec<Media> {
             .iter()
             .map(|f| format!("{base}/{f}"))
             .collect();
-        out.push(video(fallback, audio, rv));
+        let poster = extract_poster(d);
+        out.push(video(fallback, audio, rv, poster));
         return out;
     }
 
@@ -423,10 +536,12 @@ fn extract_media(d: &Value) -> Vec<Media> {
         out.push(image(url, &Value::Null));
     } else if path.ends_with(".gifv") {
         let mp4 = &url[..url.len() - ".gifv".len()];
-        out.push(video(&format!("{mp4}.mp4"), Vec::new(), &Value::Null));
+        let poster = extract_poster(d);
+        out.push(video(&format!("{mp4}.mp4"), Vec::new(), &Value::Null, poster));
     } else if let Some(fb) = d["preview"]["reddit_video_preview"]["fallback_url"].as_str() {
         // Animierte Beiträge (RedGIFs, Giphy, …): Reddit hostet eine stumme MP4-Vorschau.
-        out.push(video(fb, Vec::new(), &d["preview"]["reddit_video_preview"]));
+        let poster = extract_poster(d);
+        out.push(video(fb, Vec::new(), &d["preview"]["reddit_video_preview"], poster));
     } else if let Some(id) = redgifs_id(url) {
         // Ohne Vorschau: RedGIFs-Player einbetten, wie das Addon es mit dem iframe macht.
         out.push(embed(&format!("https://www.redgifs.com/ifr/{id}")));
@@ -439,10 +554,18 @@ fn extract_media(d: &Value) -> Vec<Media> {
     out
 }
 
+fn extract_poster(d: &Value) -> Option<String> {
+    d["preview"]["images"][0]["source"]["url"]
+        .as_str()
+        .or_else(|| d["thumbnail"].as_str().filter(|t| t.starts_with("http")))
+        .map(|u| proxy(&u.replace("&amp;", "&")))
+}
+
 fn image(raw: &str, dims: &Value) -> Media {
     Media {
         kind: "image",
         url: if optimize::enabled() { optimize::opt_url("image", &raw.replace("&amp;", "&"), &[]) } else { proxy(raw) },
+        poster: None,
         width: dims["x"].as_i64().or(dims["width"].as_i64()),
         height: dims["y"].as_i64().or(dims["height"].as_i64()),
         audio: Vec::new(),
@@ -450,20 +573,24 @@ fn image(raw: &str, dims: &Value) -> Media {
     }
 }
 
-fn video(raw: &str, audio: Vec<String>, dims: &Value) -> Media {
+fn video(raw: &str, audio: Vec<String>, dims: &Value, poster: Option<String>) -> Media {
+    let clean = raw.replace("&amp;", "&");
+    let cached = optimize::is_cached("video", &clean, &audio);
     Media {
         kind: "video",
-        url: if optimize::enabled() { optimize::opt_url("video", &raw.replace("&amp;", "&"), &audio) } else { proxy(raw) },
+        url: if optimize::enabled() { optimize::opt_url("video", &clean, &audio) } else { proxy(&clean) },
+        poster,
         width: dims["width"].as_i64(),
         height: dims["height"].as_i64(),
-        // Optimierte Videos haben den Ton schon eingebaut.
-        audio: if optimize::enabled() { Vec::new() } else { audio.iter().map(|a| proxy(a)).collect() },
-        src: raw.replace("&amp;", "&"),
+        // Wenn bereits optimiert auf Platte liegt, ist der Ton schon im MP4.
+        // Falls noch nicht im Cache, stellen wir die Audio-Kandidaten bereit, damit sofort mit Ton gespielt werden kann.
+        audio: if cached { Vec::new() } else { audio.iter().map(|a| proxy(a)).collect() },
+        src: clean,
     }
 }
 
 fn embed(url: &str) -> Media {
-    Media { kind: "embed", url: url.to_string(), width: None, height: None, audio: Vec::new(), src: String::new() }
+    Media { kind: "embed", url: url.to_string(), poster: None, width: None, height: None, audio: Vec::new(), src: String::new() }
 }
 
 /// ID aus "https://www.redgifs.com/watch/<id>" (nur Buchstaben/Ziffern, sonst None).
@@ -500,6 +627,13 @@ mod tests {
         assert_eq!(parse_source("https://www.reddit.com/hot/?redswipe=app"), Some(Source::Home));
         assert_eq!(parse_source("https://example.com/r/aww"), None);
         assert_eq!(parse_source("https://www.reddit.com/user/x"), None);
+        let multi = |u: &str, n: &str| Some(Source::Multi(u.to_string(), n.to_string()));
+        assert_eq!(parse_source("https://www.reddit.com/user/Brilliant-Nothing684/m/redswipe/hot/"), multi("Brilliant-Nothing684", "redswipe"));
+        assert_eq!(parse_source("https://www.reddit.com/user/abc/m/feed"), multi("abc", "feed"));
+        assert_eq!(parse_source("https://old.reddit.com/u/abc/m/feed/top?t=week"), multi("abc", "feed"));
+        assert_eq!(parse_source("user/abc/m/feed"), multi("abc", "feed"));
+        assert_eq!(parse_source("https://www.reddit.com/user/abc/submitted/"), None);
+        assert_eq!(parse_source("https://www.reddit.com/user/abc/m/"), None);
         assert_eq!(parse_source("a b"), None);
         assert_eq!(parse_source("aww++cats"), None);
         assert_eq!(parse_source(&"x".repeat(22)), None);
@@ -551,8 +685,8 @@ mod tests {
         assert_eq!(p.media[0].kind, "video");
         assert!(p.media[0].url.starts_with("/api/opt?k=video&url=https%3A%2F%2Fv.redd.it%2Fxyz%2FDASH_720.mp4%3Fsource%3Dfallback&a="));
         assert!(p.media[0].url.contains("CMAF_AUDIO_128.mp4"));
-        // Ton ist im optimierten Video schon enthalten.
-        assert!(p.media[0].audio.is_empty());
+        // Tonspur-Kandidaten sind vorhanden, damit unoptimierte Videos sofort mit Ton spielen können.
+        assert!(!p.media[0].audio.is_empty());
         assert_eq!(p.media[0].width, Some(720));
     }
 

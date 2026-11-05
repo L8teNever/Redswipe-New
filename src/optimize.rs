@@ -85,6 +85,60 @@ fn original(url: &str) -> Response {
     Redirect::temporary(&format!("/api/media?url={}", urlencoding::encode(url))).into_response()
 }
 
+pub fn is_cached(kind: &str, raw: &str, audio: &[String]) -> bool {
+    let joined = audio.iter().map(|a| a.replace("&amp;", "&")).collect::<Vec<_>>().join("|");
+    let k = key(kind, raw, &joined);
+    let ext = if kind == "image" { "webp" } else { "mp4" };
+    cache_dir().join(format!("{k}.{ext}")).exists()
+}
+
+pub fn prewarm(st: &AppState, kind: &str, raw: &str, audio: &[String]) {
+    if !enabled() {
+        return;
+    }
+    let Ok(url) = Url::parse(raw) else { return };
+    if !media_allowed(&url) { return };
+    let joined = audio.iter().map(|a| a.replace("&amp;", "&")).collect::<Vec<_>>().join("|");
+    let k = key(kind, raw, &joined);
+    let dir = cache_dir();
+    let ext = if kind == "image" { "webp" } else { "mp4" };
+    let out = dir.join(format!("{k}.{ext}"));
+    let skip = dir.join(format!("{k}.skip"));
+    if out.exists() || skip.exists() {
+        return;
+    }
+    let audio_urls: Vec<Url> = audio
+        .iter()
+        .filter_map(|s| Url::parse(s).ok())
+        .filter(media_allowed)
+        .take(5)
+        .collect();
+    let st = st.clone();
+    let kind_owned = kind.to_string();
+    tokio::spawn(async move {
+        let lock = {
+            let mut m = locks().lock().await;
+            m.entry(k.clone()).or_default().clone()
+        };
+        let _g = lock.lock().await;
+        if !out.exists() && !skip.exists() {
+            let res = timeout(Duration::from_secs(300), run_job(&st, &kind_owned, &url, &audio_urls, &dir, &k, &out)).await;
+            match res {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => {
+                    eprintln!("Prewarm fehlgeschlagen ({kind_owned} {url}): {e}");
+                    let _ = tokio::fs::write(&skip, b"").await;
+                }
+                Err(_) => {
+                    eprintln!("Prewarm Timeout ({kind_owned} {url})");
+                    let _ = tokio::fs::write(&skip, b"").await;
+                }
+            }
+        }
+        locks().lock().await.remove(&k);
+    });
+}
+
 pub async fn handler(State(st): State<AppState>, Query(q): Query<OptQuery>, req: Request<Body>) -> Response {
     let (Some(kind), Some(raw)) = (q.k.as_deref(), q.url.as_deref()) else {
         return err(StatusCode::BAD_REQUEST, "Parameter fehlen");
@@ -121,14 +175,32 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<OptQuery>, req:
     let out = dir.join(format!("{k}.{ext}"));
     let skip = dir.join(format!("{k}.skip"));
 
-    if !out.exists() && !skip.exists() {
+    // Wenn bereits optimiert auf Platte liegt: sofort ausliefern
+    if out.exists() {
+        return match ServeFile::new(&out).oneshot(req).await {
+            Ok(mut r) => {
+                r.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=86400".parse().unwrap());
+                r.map(Body::new)
+            }
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
+    }
+
+    // Videos: Nie den Client sekundenlang blockieren! Sofort Original streamen und im Hintergrund vorbereiten.
+    if kind == "video" {
+        let audio_strings: Vec<String> = audio.iter().map(|u| u.as_str().to_string()).collect();
+        prewarm(&st, kind, raw, &audio_strings);
+        return original(raw);
+    }
+
+    if !skip.exists() {
         let lock = {
             let mut m = locks().lock().await;
             m.entry(k.clone()).or_default().clone()
         };
         let _g = lock.lock().await;
         if !out.exists() && !skip.exists() {
-            let res = match timeout(Duration::from_secs(300), run_job(&st, kind, &url, &audio, &dir, &k, &out)).await {
+            let res = match timeout(Duration::from_secs(10), run_job(&st, kind, &url, &audio, &dir, &k, &out)).await {
                 Ok(r) => r,
                 Err(_) => Err("Zeitüberschreitung".to_string()),
             };

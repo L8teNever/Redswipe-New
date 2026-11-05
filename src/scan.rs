@@ -22,9 +22,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, Notify};
 
-use crate::{AppState, Post, err, media_allowed, optimize};
+use crate::{AppState, Post, err, media_allowed, optimize, pool};
 
-const MAX_QUEUE: usize = 300;
+const MAX_QUEUE: usize = 1200;
 
 fn scanner() -> Option<String> {
     let v = env::var("NSFW_URL").ok()?;
@@ -51,6 +51,7 @@ struct Job {
     raw: String,
     prio: u32,
     seq: u64,
+    post_id: Option<String>,
 }
 
 struct Queue {
@@ -136,7 +137,7 @@ fn start_workers(st: &AppState) {
     });
 }
 
-fn key(kind: &str, url: &str) -> String {
+pub(crate) fn key(kind: &str, url: &str) -> String {
     let mut a = DefaultHasher::new();
     ("scan", kind, url).hash(&mut a);
     let mut b = DefaultHasher::new();
@@ -144,7 +145,7 @@ fn key(kind: &str, url: &str) -> String {
     format!("{:016x}{:016x}", a.finish(), b.finish())
 }
 
-fn result_path(k: &str) -> std::path::PathBuf {
+pub(crate) fn result_path(k: &str) -> std::path::PathBuf {
     optimize::cache_dir().join(format!("{k}.scan.json"))
 }
 
@@ -154,17 +155,86 @@ pub fn enqueue_posts(st: &AppState, posts: &[Post]) {
         return;
     }
     for p in posts {
+        if pool::is_seen(&p.id) {
+            continue;
+        }
         for m in &p.media {
             if m.src.is_empty() || (m.kind != "image" && m.kind != "video") {
                 continue;
             }
-            enqueue(st.clone(), m.kind, m.src.clone(), IDLE);
+            enqueue(st.clone(), m.kind, m.src.clone(), IDLE, Some(p.id.clone()));
         }
     }
 }
 
-fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32) {
+/// Scanbare Medien eines Beitrags (JSON wie aus dem Feed): (Art, Originaladresse). GIF-Bilder werden nie gescannt.
+fn scannable(post: &Value) -> Vec<(&'static str, String)> {
+    post["media"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let kind: &'static str = match m["type"].as_str()? {
+                "image" => "image",
+                "video" => "video",
+                _ => return None,
+            };
+            let src = m["src"].as_str().filter(|s| !s.is_empty())?;
+            let url = Url::parse(src).ok()?;
+            if !media_allowed(&url) || (kind == "image" && url.path().to_lowercase().ends_with(".gif")) {
+                return None;
+            }
+            Some((kind, src.to_string()))
+        })
+        .collect()
+}
+
+pub enum PostScan {
+    /// Mindestens ein Medium wartet noch auf den Scan.
+    Pending,
+    /// Alles gescannt, mindestens ein Ergebnis ist brauchbar.
+    Ready,
+    /// Nichts scanbar oder alle Scans fehlgeschlagen.
+    Dead,
+}
+
+/// Wie weit sind die Scans eines Beitrags?
+pub fn post_state(post: &Value) -> PostScan {
+    let media = scannable(post);
+    let mut done = 0;
+    for (kind, src) in &media {
+        let path = result_path(&key(kind, src));
+        let Ok(t) = std::fs::read_to_string(&path) else { return PostScan::Pending };
+        if serde_json::from_str::<Value>(&t).ok().is_some_and(|v| v["status"].as_str() == Some("done")) {
+            done += 1;
+        }
+    }
+    if done > 0 { PostScan::Ready } else { PostScan::Dead }
+}
+
+/// Alle noch nicht gescannten Medien eines Beitrags (JSON) im Hintergrund vormerken.
+pub fn enqueue_value(st: &AppState, post: &Value) {
+    if scanner().is_none() {
+        return;
+    }
+    let pid = post["id"].as_str().map(String::from);
+    if let Some(ref id) = pid {
+        if pool::is_seen(id) {
+            return;
+        }
+    }
+    for (kind, src) in scannable(post) {
+        enqueue(st.clone(), kind, src, IDLE, pid.clone());
+    }
+}
+
+fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32, post_id: Option<String>) {
     tokio::spawn(async move {
+        if let Some(ref pid) = post_id {
+            if pool::is_seen(pid) {
+                return;
+            }
+        }
         let Ok(url) = Url::parse(&raw) else { return };
         if !media_allowed(&url) {
             return;
@@ -183,12 +253,15 @@ fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32) {
             let mut jobs = queue().jobs.lock().await;
             if let Some(j) = jobs.iter_mut().find(|j| j.k == k) {
                 j.prio = j.prio.min(prio);
+                if j.post_id.is_none() {
+                    j.post_id = post_id;
+                }
                 return;
             }
             if inflight().lock().await.contains(&k) || jobs.len() >= MAX_QUEUE {
                 return;
             }
-            jobs.push(Job { k, kind, raw, prio, seq: SEQ.fetch_add(1, Ordering::Relaxed) });
+            jobs.push(Job { k, kind, raw, prio, seq: SEQ.fetch_add(1, Ordering::Relaxed), post_id });
         }
         queue().wake.notify_one();
     });
@@ -196,7 +269,7 @@ fn enqueue(st: AppState, kind: &'static str, raw: String, prio: u32) {
 
 /// "Jetzt scannen": Auftrag ganz nach vorn und zusätzlich ein eigener Arbeiter, der sofort startet,
 /// auch wenn die normalen Arbeiter gerade mit anderen Medien beschäftigt sind.
-fn rush(st: AppState, kind: &'static str, raw: String) {
+fn rush(st: AppState, kind: &'static str, raw: String, post_id: Option<String>) {
     let k = key(kind, &raw);
     tokio::spawn(async move {
         {
@@ -208,7 +281,7 @@ fn rush(st: AppState, kind: &'static str, raw: String) {
         }
         // Altes Ergebnis verwerfen: es wird komplett neu gescannt.
         let _ = tokio::fs::remove_file(result_path(&k)).await;
-        enqueue(st.clone(), kind, raw, 0);
+        enqueue(st.clone(), kind, raw, 0, post_id);
         // Kurz warten, bis der Auftrag in der Warteschlange liegt, dann einen Sonder-Arbeiter starten.
         tokio::time::sleep(Duration::from_millis(50)).await;
         let job = {
@@ -222,8 +295,40 @@ fn rush(st: AppState, kind: &'static str, raw: String) {
     });
 }
 
+/// Bricht alle Scans zu diesem Beitrag ab und entfernt ihn aus der Warteschlange (z. B. weil der Beitrag gesehen wurde).
+pub fn cancel_post(post_id: &str) {
+    let pid = post_id.to_string();
+    tokio::spawn(async move {
+        let to_cancel: Vec<String> = {
+            let mut jobs = queue().jobs.lock().await;
+            let mut keys = Vec::new();
+            jobs.retain(|j| {
+                if j.post_id.as_deref() == Some(&pid) {
+                    keys.push(j.k.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            keys
+        };
+        let run = running().lock().await;
+        for k in to_cancel {
+            if let Some(notify) = run.get(&k) {
+                notify.notify_waiters();
+            }
+        }
+    });
+}
+
 async fn work(st: &AppState, job: Job) {
-    let Job { k, kind, raw, prio, .. } = job;
+    let Job { k, kind, raw, prio, post_id, .. } = job;
+    if let Some(ref pid) = post_id {
+        if pool::is_seen(pid) {
+            inflight().lock().await.remove(&k);
+            return;
+        }
+    }
     let cancel = Arc::new(Notify::new());
     if prio < IDLE {
         running().lock().await.insert(k.clone(), cancel.clone());
@@ -278,7 +383,7 @@ async fn run(st: &AppState, kind: &str, url: &Url, k: &str) -> Result<Value, Fai
         .client
         .post(format!("{base}/scan"))
         .timeout(Duration::from_secs(timeout))
-        .json(&json!({ "path": tmp.to_string_lossy(), "kind": kind, "parts": if kind == "video" { parts() } else { 1 } }))
+        .json(&json!({ "path": tmp.to_string_lossy(), "kind": kind, "parts": if kind == "video" { parts() } else { 1 }, "workers": limit() }))
         .send()
         .await;
     let _ = tokio::fs::remove_file(&tmp).await;
@@ -338,9 +443,9 @@ pub async fn handler(State(st): State<AppState>, Query(q): Query<ScanQuery>) -> 
     }
     // Noch nichts da: sicherstellen, dass der Scan läuft.
     if q.now == Some(1) {
-        rush(st, kind, raw.to_string());
+        rush(st, kind, raw.to_string(), None);
     } else {
-        enqueue(st, kind, raw.to_string(), q.p.map_or(IDLE, |p| p.min(IDLE)));
+        enqueue(st, kind, raw.to_string(), q.p.map_or(IDLE, |p| p.min(IDLE)), None);
     }
     Json(json!({ "status": "pending" })).into_response()
 }

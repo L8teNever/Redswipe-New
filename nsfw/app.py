@@ -701,27 +701,58 @@ def skin_class(L, b):
     return "dunkel"
 
 
-def hair_class(rgb):
-    import colorsys
+def hair_class(rgb):  # Rückfall nach RGB (alte Schnittstelle)
+    import cv2
 
-    r, g, b = [c / 255.0 for c in rgb]
-    hh, s, v = colorsys.rgb_to_hsv(r, g, b)
-    hue = hh * 360
-    if s < 0.18:
-        return "weiß" if v > 0.78 else "grau" if v > 0.40 else "schwarz"
-    if v < 0.22:
+    lab = cv2.cvtColor(np.uint8([[[rgb[2], rgb[1], rgb[0]]]]), cv2.COLOR_BGR2LAB)[0, 0].astype(np.float32)
+    return hair_class_lab(lab[0] * 100 / 255, lab[1] - 128, lab[2] - 128)
+
+
+def hair_class_lab(L, a, b):
+    """Haarfarbe aus Lab (L 0..100, a/b mit Vorzeichen). Schwellen nach Helligkeit der nicht verschatteten Haarpixel."""
+    C = float(np.hypot(a, b))
+    hue = float(np.degrees(np.arctan2(b, a)))
+    if L < 17:
         return "schwarz"
-    if s > 0.55 and v > 0.45 and not (8 <= hue <= 50):
+    if C < 9:
+        return "weiß" if L >= 78 else "grau" if L >= 38 else "schwarz"
+    if C >= 30 and not (15 <= hue <= 105):
         return "bunt"
-    if (hue < 18 or hue > 340) and s > 0.5 and v > 0.35:
+    if a >= 17 and b >= 8 and hue < 52 and L < 62:
         return "rot"
-    if v < 0.30:
-        return "schwarz"
-    if v < 0.45:
+    if L < 29:
         return "dunkelbraun"
-    if v < 0.62:
+    if L < 42:
         return "braun"
-    return "blond" if s < 0.75 else "rot"
+    if L < 50:
+        return "hellbraun"
+    if L < 60:
+        return "dunkelblond"
+    return "platinblond" if (L >= 82 and C < 20) else "blond"
+
+
+def hair_color(lab_img, hair, skin, skin_L=None):
+    """Haarfarbe robust bestimmen: nur Haarpixel nahe am Gesicht (Hintergrund-Fehlgriffe des Parsers raus), dann die
+    helleren, nicht verschatteten Pixel (Schatten dunkeln Haare nur ab) ohne Glanzlichter. Liefert (Name, RGB) oder None."""
+    import cv2
+
+    h = cv2.erode(hair.astype(np.uint8), np.ones((5, 5), np.uint8))
+    near = cv2.dilate(skin.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (241, 241)))
+    hn = h & near
+    if hn.sum() >= 0.015 * hn.size:
+        h = hn
+    if h.sum() < 0.015 * h.size:
+        return None
+    px = lab_img[h > 0].astype(np.float32)
+    L = px[:, 0] * 100 / 255
+    px = px[L <= np.percentile(L, 97)]  # Glanzlichter raus
+    # Drei Farbgruppen (Schatten / Mitte / hell): die hellste mit mindestens 20 % Anteil ist die beleuchtete Haarfarbe
+    cl = [c_ for c_ in _dominant_lab(px, 3) if c_[1] >= 0.2] or _dominant_lab(px, 3)[:1]
+    c = max(cl, key=lambda t: t[0][0])[0]
+    Lc = float(c[0] * 100 / 255)
+    if skin_L is not None:  # Beleuchtung grob ausgleichen: dunkles Bild -> Haare etwas heller einstufen
+        Lc += float(np.clip((55.0 - skin_L) * 0.5, -8, 8))
+    return hair_class_lab(Lc, float(c[1] - 128), float(c[2] - 128)), _lab_to_rgb(c)
 
 
 def _skin_lab(px):
@@ -806,12 +837,10 @@ def person_colors(bgr, pose, items=None):
         if len(px) >= 80:
             face_lab, face_n = _skin_lab(px), len(px)
             res["skin_face"] = skin_class(face_lab[0] * 100 / 255, face_lab[2] - 128)
-        hair = cv2.erode((seg == HAIR_ID).astype(np.uint8), ker)
-        if hair.sum() >= 0.015 * seg.size:
-            cl = _dominant_lab(lab_img[hair > 0].astype(np.float32))
-            rgbc = _lab_to_rgb(cl[0][0])
-            res["hair"] = hair_class(rgbc)
-            res["hair_rgb"] = rgbc
+        hc = hair_color(lab_img, seg == HAIR_ID, np.isin(seg, SKIN_IDS + (NOSE_ID,)),
+                        face_lab[0] * 100 / 255 if face_lab is not None else None)
+        if hc:
+            res["hair"], res["hair_rgb"] = hc
     body = body_skin(bgr, pose, items, face_lab)
     if body:
         res["skin_body"] = skin_class(body[0][0] * 100 / 255, body[0][2] - 128)
@@ -850,6 +879,7 @@ class Req(BaseModel):
     path: str
     kind: str  # "image" | "video"
     parts: int = 1  # Video: in so viele Zeitabschnitte teilen und parallel scannen
+    workers: int = 0  # Einstellung "Gleichzeitig" der Weboberfläche: so viele Detektoren dürfen bereitstehen
 
 
 @app.get("/healthz")
@@ -922,6 +952,275 @@ def find_nipple(bgr, box):
     return ((x0 + (ix + .5) / s) / W, (y0 + (iy + .5) / s) / H, conf)
 
 
+SHOULDER_CM = float(os.environ.get("SHOULDER_CM", "36"))  # Schulterbreite (Gelenk zu Gelenk) als Maßstab
+CUPS = ("AA", "A", "B", "C", "D", "E", "F", "G", "H")
+
+
+def sag_score(br, ytop, torso_px, W, H):
+    """Hängend vs. straff. Hauptsignal: Lage der Brustwarze in der Brust-Box (straff ~ Mitte, hängend ~ unteres Drittel,
+    weil die Box bis zur Unterbrustfalte reicht). Nebensignal (schwach, von der Pose abhängig): Tiefe am Oberkörper."""
+    parts = []
+    for bx, by, bw, bh, _sc, nip in br:
+        ny = nip[1] if nip else by + bh * 0.5
+        rel_b = (ny - by) / max(bh, 1e-6)
+        s_b = float(np.clip((rel_b - 0.55) / 0.2, 0, 1))
+        if torso_px:
+            rel_t = (ny - ytop) * H / max(torso_px, 1)
+            s_t = float(np.clip((rel_t - 0.38) / 0.22, 0, 1))
+            parts.append(0.75 * s_b + 0.25 * s_t)
+        else:
+            parts.append(s_b)
+    sag = float(np.mean(parts))
+    label = "straff" if sag < 0.3 else "leicht abgesenkt" if sag < 0.55 else "hängend" if sag < 0.8 else "stark hängend"
+    return round(sag, 2), label
+
+
+def bra_estimate_nopose(items, W, H, age=None):
+    """Fallback ohne Pose: nur aus den Brust-Boxen. Maßstab ist angenommen (Brustbreite = 0,85 x Schulterbreite),
+    daher sehr grob. Gleiche Altersregel wie bei bra_estimate."""
+    if age is None or age < 18:
+        return None
+    br = [(d["box"][0], d["box"][1], d["box"][2], d["box"][3], d["score"], d.get("nip"))
+          for d in items if d["label"] == "FEMALE_BREAST_EXPOSED"]
+    br.sort(key=lambda b: -b[4])
+    br = br[:2]
+    if len(br) != 2:
+        return None
+    span_n = (max(b[0] + b[2] for b in br) - min(b[0] for b in br)) * W
+    if span_n < 60:
+        return None
+    span = 0.85 * SHOULDER_CM
+    cm = span / span_n
+    mean_dim = float(np.mean([(b[2] * W + b[3] * H) / 2 * cm for b in br]))
+    a_, b_ = span * 0.82 / 2, span * 0.82 * 0.65 / 2
+    under = float(np.pi * (3 * (a_ + b_) - np.sqrt((3 * a_ + b_) * (a_ + 3 * b_))))
+    diff = float(np.clip(0.95 * mean_dim, 6, 30))
+    band = int(np.clip(round(under / 5) * 5, 60, 110))
+    cup = CUPS[int(np.clip(round((diff - 10) / 2), 0, len(CUPS) - 1))]
+    sag, sag_label = sag_score(br, 0, 0, W, H)
+    return {"band": band, "cup": cup, "size": f"{band}{cup}", "under_cm": round(under), "diff_cm": round(diff, 1),
+            "breasts": 2, "conf": "niedrig", "sag": sag, "sag_label": sag_label}
+
+
+_seg = None
+_seg_lock = threading.Lock()
+SEG_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.environ.get("SEG_FILE", "yolo11s-seg.pt"))
+SHAPE_ON = os.environ.get("SHAPE", "1") != "0"
+
+
+def person_masks(img):
+    """Personen-Silhouetten (YOLO-Segmentierung): Liste von uint8-Masken in Bildgröße (auf max. 640 px Kante verkleinert)."""
+    global _seg
+    import cv2
+
+    if not (SHAPE_ON and os.path.exists(SEG_MODEL)):
+        return []
+    h, w = img.shape[:2]
+    sc = min(1.0, 640.0 / max(h, w))
+    small = cv2.resize(img, (int(w * sc), int(h * sc))) if sc < 1 else img
+    with _seg_lock:
+        if _seg is None:
+            from ultralytics import YOLO
+
+            _seg = YOLO(SEG_MODEL)
+        res = _seg.predict(small, classes=[0], conf=0.25, iou=0.6, imgsz=640, verbose=False)[0]
+    out = []
+    if res.masks is not None:
+        sh, sw = small.shape[:2]
+        for poly in res.masks.xy:
+            m = np.zeros((sh, sw), np.uint8)
+            if len(poly) >= 3:
+                cv2.fillPoly(m, [np.round(poly).astype(np.int32)], 1)
+                out.append(m)
+    return out
+
+
+def _row_run(m, y, cx, reach):
+    """Breite des zusammenhängenden Maskenstücks in Zeile y um cx (Pixel); None wenn dort nichts ist."""
+    if not (0 <= y < m.shape[0]):
+        return None
+    row = m[y] > 0
+    n = len(row)
+    cx = int(np.clip(cx, 0, n - 1))
+    if not row[cx]:
+        near = np.flatnonzero(row[max(0, cx - reach):cx + reach + 1])
+        if not len(near):
+            return None
+        cx = max(0, cx - reach) + int(near[np.argmin(np.abs(near - reach))])
+    a = cx
+    while a > 0 and row[a - 1]:
+        a -= 1
+    b = cx
+    while b < n - 1 and row[b + 1]:
+        b += 1
+    return b - a + 1, a, b
+
+
+def body_shape(masks, pose, W, H, age=None):
+    """Körperbau aus Silhouette + Pose: Taillen- und Hüftbreite im Verhältnis zur Schulterbreite (Schulterbreite = Maßstab).
+    Funktioniert auch bei Teilansichten: fehlen die Hüften, wird die Taille aus der Schulterbreite abgeschätzt.
+    Gemessen wird die Silhouette inkl. Kleidung, also grob (weite Kleidung macht breiter). Unter 18 wird nichts berechnet."""
+    import cv2
+
+    if (age is not None and age < 18) or not masks:
+        return None
+    ls, rs = pose[11], pose[12]
+    if ls[2] < 0.5 or rs[2] < 0.5:
+        return None
+    mh, mw = masks[0].shape[:2]
+    kx, ky = mw, mh  # normierte Pose-Punkte -> Maskenpixel
+    sx, sy = (ls[0] + rs[0]) / 2 * kx, (ls[1] + rs[1]) / 2 * ky
+    sh_px = float(np.hypot((ls[0] - rs[0]) * kx, (ls[1] - rs[1]) * ky))
+    if sh_px < 24:
+        return None
+    cand = [m for m in masks if m[int(np.clip(sy, 0, mh - 1)), int(np.clip(sx, 0, mw - 1))]]
+    if not cand:
+        return None
+    m = min(cand, key=lambda x: int(x.sum())).copy()
+    hips = [pose[i] for i in (23, 24) if pose[i][2] >= 0.4]
+    torso_len = None
+    hx = hy = None
+    if len(hips) == 2:
+        hx, hy = (hips[0][0] + hips[1][0]) / 2 * kx, (hips[0][1] + hips[1][1]) / 2 * ky
+        torso_len = float(np.hypot(hx - sx, hy - sy))
+        if torso_len > 0 and sh_px / torso_len < 0.4:
+            return None  # von der Seite: Breiten nicht verwertbar
+        hxs = sorted(h_[0] * kx for h_ in hips)
+        for e, w_, a_ in ((13, 15, 11), (14, 16, 12)):  # hängende Arme neben dem Rumpf aus der Maske löschen
+            if pose[e][2] >= 0.5 and (pose[e][0] * kx < hxs[0] - 0.05 * sh_px or pose[e][0] * kx > hxs[1] + 0.05 * sh_px):
+                pts = [a_, e] + ([w_] if pose[w_][2] >= 0.4 else [])
+                for u, v in zip(pts, pts[1:]):
+                    cv2.line(m, (int(pose[u][0] * kx), int(pose[u][1] * ky)), (int(pose[v][0] * kx), int(pose[v][1] * ky)), 0, max(3, int(0.34 * sh_px)))
+    else:
+        torso_len = 1.25 * sh_px  # Schulter-Hüft-Abstand ca. 1,25 x Schulterbreite
+        hx, hy = sx, sy + torso_len
+    ux, uy = (hx - sx) / max(torso_len, 1e-6), (hy - sy) / max(torso_len, 1e-6)  # Rumpfachse
+
+    def width_at(frac):
+        vals = []
+        for d in (-0.03, 0.0, 0.03):
+            t = (frac + d) * torso_len
+            x, y = sx + ux * t, sy + uy * t
+            r = _row_run(m, int(round(y)), int(round(x)), int(0.4 * sh_px))
+            if r is None or (r[1] <= 1 or r[2] >= mw - 2):
+                continue  # Bildrand: Breite nicht vollständig
+            vals.append(r[0])
+        return float(np.median(vals)) / sh_px if len(vals) >= 2 else None
+
+    wr = width_at(0.62)       # Taille
+    hr = width_at(1.08) if len(hips) == 2 else None  # Hüfte (knapp unter den Hüftgelenken)
+    if wr is None and hr is None:
+        return None
+    if wr is None:
+        wr = hr * 0.8
+    idx = wr if hr is None else 0.65 * wr + 0.35 * hr * 0.8
+    label = "schlank" if idx < 0.66 else "normal" if idx < 0.80 else "kräftig" if idx < 0.95 else "mollig" if idx < 1.10 else "dick"
+    return {"label": label, "waist": round(wr, 2), "hip": round(hr, 2) if hr is not None else None, "idx": round(idx, 2),
+            "conf": "mittel" if hr is not None else "niedrig"}
+
+
+def face_only_colors(img, poses, items):
+    """Für Gesichter, zu denen keine Pose-Person gehört: Pseudo-Pose nur aus der Gesichts-Box bauen und
+    Alter/Haar-/Hautfarbe wie sonst berechnen. Liefert eine Liste von Ergebnis-Dicts (kann leer sein)."""
+    if not (COLORS_ON and os.path.exists(PARSE_MODEL)):
+        return []
+    H, W = img.shape[:2]
+    out = []
+    faces = sorted((d for d in items if d["label"] in ("FACE_FEMALE", "FACE_MALE") and d["score"] >= 0.4), key=lambda d: -d["score"])
+    for d in faces[:4]:
+        x, y, w, h = d["box"]
+        cx, cy = x + w / 2, y + h / 2
+        if any(p[0][2] >= 0.3 and x <= p[0][0] <= x + w and y <= p[0][1] <= y + h for p in poses):
+            continue  # dieses Gesicht hat schon eine Pose-Person
+        if max(w * W, h * H) < 24:
+            continue
+        pose = [[0.0, 0.0, 0.0] for _ in range(33)]
+        pts = {0: (0, .05), 1: (-.15, -.12), 2: (-.15, -.12), 3: (-.22, -.12), 4: (.15, -.12), 5: (.15, -.12), 6: (.22, -.12),
+               7: (-.38, 0), 8: (.38, 0), 9: (-.12, .28), 10: (.12, .28)}
+        for k, (dx, dy) in pts.items():
+            pose[k] = [cx + dx * w, cy + dy * h, 0.9]
+        c = person_colors(img, pose, items)
+        if c:
+            out.append(c)
+    return out
+
+
+def face_age(img, items):
+    """Alter aus dem NudeNet-Gesichts-Box (wenn keine Pose-Gesichtspunkte da sind); nur bei sicherem Gesicht (>= 0,5)."""
+    faces = [d for d in items if d["label"] == "FACE_FEMALE" and d["score"] >= 0.5]
+    if len(faces) != 1:
+        return None
+    H, W = img.shape[:2]
+    x, y, w, h = faces[0]["box"]
+    fw = 0.75 * max(w * W, h * H)
+    if fw < 18:
+        return None
+    half = int(round(1.2 * fw))
+    cx, cy = int((x + w / 2) * W), int((y + h / 2) * H)
+    import cv2
+    pad = half
+    big = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
+    return estimate_age(big[cy:cy + 2 * half, cx:cx + 2 * half])
+
+
+def bra_estimate(pose, items, W, H, age=None):
+    """Grobe BH-Größe (EU) aus Pose + NudeNet-Brust-Boxen. Die Schulterbreite (36 cm) ist der Maßstab:
+    Unterbrust aus der Breite der Brust-Boxen (Ellipse mit Tiefe 0,65 x Breite), Körbchen aus der Boxgröße.
+    Nur halbwegs von vorn brauchbar; Fehler leicht +-1 Körbchen / +-5 cm Band. Ohne geschätztes Alter oder unter 18 wird nichts berechnet."""
+    if age is None or age < 18:  # nur bei erkannt erwachsenen Personen rechnen
+        return None
+    ls, rs = pose[11], pose[12]
+    if ls[2] < 0.5 or rs[2] < 0.5:
+        return None
+    sh_px = float(np.hypot((ls[0] - rs[0]) * W, (ls[1] - rs[1]) * H))
+    if sh_px < 40:
+        return None
+    hips = [pose[i] for i in (23, 24) if pose[i][2] >= 0.4]
+    frontal = None
+    tl_px = 0.0
+    if len(hips) == 2:
+        mx, my = (ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2
+        hx, hy = (hips[0][0] + hips[1][0]) / 2, (hips[0][1] + hips[1][1]) / 2
+        tl = float(np.hypot((mx - hx) * W, (my - hy) * H))
+        tl_px = tl
+        if tl <= 0 or sh_px / tl < 0.4:  # Person von der Seite: Breiten sind nicht verwertbar
+            return None
+        frontal = True
+    cm = SHOULDER_CM / sh_px
+    x0, x1 = min(ls[0], rs[0]), max(ls[0], rs[0])
+    pad = (x1 - x0) * 0.4
+    ytop = min(ls[1], rs[1])
+    ybot = ytop + (sh_px * 1.6) / H
+    br = []
+    for d in items:
+        if d["label"] != "FEMALE_BREAST_EXPOSED":
+            continue
+        bx, by, bw, bh = d["box"]
+        cx, cy = bx + bw / 2, by + bh / 2
+        if x0 - pad <= cx <= x1 + pad and ytop <= cy <= ybot:
+            br.append((bx, by, bw, bh, d["score"], d.get("nip")))
+    br.sort(key=lambda b: -b[4])
+    br = br[:2]
+    if not br:
+        return None
+    dims = [(b[2] * W * cm, b[3] * H * cm) for b in br]
+    if len(br) == 2:
+        span = (max(b[0] + b[2] for b in br) - min(b[0] for b in br)) * W * cm
+    else:
+        span = 0.85 * SHOULDER_CM
+    a_, b_ = span * 0.82 / 2, span * 0.82 * 0.65 / 2
+    under = float(np.pi * (3 * (a_ + b_) - np.sqrt((3 * a_ + b_) * (a_ + 3 * b_))))
+    mean_dim = float(np.mean([(w_ + h_ * 1.0) / 2 for w_, h_ in dims]))
+    diff = float(np.clip(0.95 * mean_dim, 6, 30))
+    band = int(np.clip(round(under / 5) * 5, 60, 110))
+    cup = CUPS[int(np.clip(round((diff - 10) / 2), 0, len(CUPS) - 1))]
+    torso_px = tl_px if frontal else sh_px * 1.4
+    sag, sag_label = sag_score(br, (ls[1] + rs[1]) / 2, torso_px, W, H)
+    return {"band": band, "cup": cup, "size": f"{band}{cup}", "under_cm": round(under), "diff_cm": round(diff, 1),
+            "breasts": len(br), "conf": "mittel" if (len(br) == 2 and frontal) else "niedrig",
+            "sag": round(sag, 2), "sag_label": sag_label}
+
+
 def norm(det, w, h):
     x, y, bw, bh = det["box"]
     return {
@@ -990,6 +1289,49 @@ def scan_image(det, path):
     if boxes is not None:
         out["persons"] = len(boxes)
     cols = colors_for(img, poses, items)
+    bras = []
+    for i, p in enumerate(poses):
+        try:
+            age = cols[i].get("age") if cols and cols[i] else None
+            bras.append(bra_estimate(p, items, w, h, age))
+        except Exception:  # noqa: BLE001
+            bras.append(None)
+    if any(bras):
+        cols = [dict(c or {}) for c in (cols or [None] * len(poses))]
+        for c, b in zip(cols, bras):
+            if b:
+                c["bra"] = b
+    try:  # Körperbau (schlank ... dick) aus Silhouette + Pose
+        if poses and SHAPE_ON:
+            masks = person_masks(img)
+            shapes = []
+            for i, p in enumerate(poses):
+                age = cols[i].get("age") if cols and i < len(cols) and cols[i] else None
+                shapes.append(body_shape(masks, p, w, h, age))
+            if any(shapes):
+                cols = [dict(c or {}) for c in (cols or [None] * len(poses))]
+                for c, sp in zip(cols, shapes):
+                    if sp:
+                        c["shape"] = sp
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # Gesichter ohne Pose-Person (z. B. nur Oberkörper im Bild): Alter/Haar/Haut trotzdem aus dem Gesicht
+        extra = face_only_colors(img, poses, items)
+        if extra:
+            cols = list(cols or [None] * len(poses)) + extra
+    except Exception:  # noqa: BLE001
+        pass
+    if not any(bras):
+        try:  # keine Pose-Berechnung möglich: BH aus Brust-Boxen + Gesichts-Alter
+            fage = face_age(img, items)
+            fb = bra_estimate_nopose(items, w, h, fage)
+            if fb:
+                if cols and len(cols) > len(poses) and cols[-1] and cols[-1].get("age") is not None:
+                    cols[-1]["bra"] = fb
+                else:
+                    cols = list(cols or [None] * len(poses)) + [{"age": fage, "bra": fb}]
+        except Exception:  # noqa: BLE001
+            pass
     if cols is not None:
         out["appearance"] = cols
     return out
@@ -1254,11 +1596,37 @@ def scan_video(det, path, cancel=None, parts=1):
     return res
 
 
+_ndet = N_DET
+_ndet_lock = threading.Lock()
+
+
+def _get_detector(workers):
+    """Freien Detektor nehmen. Ist keiner frei und die Einstellung \"Gleichzeitig\" der Weboberfläche höher als die
+    Zahl der vorhandenen Detektoren, wird ein neuer geladen (die Zahl wächst nur, Obergrenze 12)."""
+    global _ndet
+    try:
+        return pool.get_nowait()
+    except queue.Empty:
+        pass
+    with _ndet_lock:
+        grow = _ndet < min(int(workers or 0), 12)
+        if grow:
+            _ndet += 1
+    if grow:
+        try:
+            return NudeDetector()
+        except BaseException:
+            with _ndet_lock:
+                _ndet -= 1
+            raise
+    return pool.get()
+
+
 def work(req: Req, cancel=None):
     path = os.path.realpath(req.path)
     if not path.startswith(ROOT + "/"):
         raise HTTPException(400, "Pfad nicht erlaubt")
-    det = pool.get()
+    det = _get_detector(req.workers)
     try:
         return scan_image(det, path) if req.kind == "image" else scan_video(det, path, cancel, req.parts)
     except HTTPException:

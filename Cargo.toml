@@ -12,5 +12,5 @@ serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.7.1", features = ["fs"] }
+tower-http = { version = "0.7.1", features = ["fs", "set-header"] }
 urlencoding = "2"

@@ -4,279 +4,710 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>Reddit Swipe</title>
+<meta name="theme-color" content="#120f0e">
+<title>Redswipe</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #000; color: #fff;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  /* ---------- Material 3 Expressive (dunkel) mit Glas-Flächen ---------- */
+  :root {
+    --p: #ffb59e; --on-p: #5c1a04; --pc: #ff6b3d; --on-pc: #1f0700;
+    --sc: #4b3a35; --on-sc: #f5ddd6; --tc: #8fb1ff; --on-tc: #0b1f4d;
+    --surf: #120f0e; --surf-1: #1d1918; --surf-2: #262120; --surf-3: #312b29;
+    --on-surf: #f1e1dc; --on-surf-v: #cdb9b3; --outline: #8f7b76; --outline-v: #4a3f3c;
+    --ok: #8be0a4; --bad: #ffb4ab; --warn: #ffd27a;
+    --glass: rgba(24, 20, 19, .38); --glass-bd: rgba(255, 255, 255, .16);
+    --blur: blur(22px) saturate(170%);
+    --ease: cubic-bezier(.2, 0, 0, 1); --spring: cubic-bezier(.34, 1.56, .64, 1);
+    --font: "Google Sans Flex", "Google Sans Text", "Google Sans", "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--on-surf); font-family: var(--font); overflow: hidden; }
+  button, input, select, textarea { font-family: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
 
-  /* Oben fest: Eingabe */
-  #topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; flex-wrap: wrap;
-    gap: 8px; padding: 10px; background: rgba(0,0,0,.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-  #topbar form { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin: 0; }
-  #q { flex: 1 1 220px; min-width: 0; font-size: 16px; padding: 9px 10px; border-radius: 8px;
-    border: 1px solid #444; background: #111; color: #fff; }
-  #topbar select, #topbar button { font-size: 16px; padding: 9px 10px; border-radius: 8px;
-    border: 1px solid #444; background: #222; color: #fff; }
-  #topbar button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
-  #topbar select[hidden] { display: none; }
-  #topbar.collapsed { display: none; }
-  #menuBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 10px; z-index: 11; width: 44px; height: 44px;
-    border-radius: 50%; border: none; background: rgba(0,0,0,.5); color: #fff; font-size: 20px; }
-  #menuBtn[hidden] { display: none; }
+  .ic { display: inline-flex; flex: none; }
+  .ic svg { width: 24px; height: 24px; fill: currentColor; display: block; }
+  .ic.s svg { width: 18px; height: 18px; }
+  .ic.xs svg { width: 15px; height: 15px; }
 
-  /* VPN-Dialog */
-  #vpn { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.75); padding: 16px; }
-  #vpn[hidden] { display: none; }
-  #vpn .card { width: 100%; max-width: 440px; max-height: 90dvh; overflow: auto; background: #181818;
-    border: 1px solid #333; border-radius: 12px; padding: 16px; }
-  #vpn h2 { margin: 0 0 8px; font-size: 18px; }
-  #vpn p { margin: 8px 0; font-size: 14px; color: #ccc; line-height: 1.4; }
-  #vpn .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  #vpn button { font-size: 16px; padding: 9px 12px; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; }
-  #vpn button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
-  #vpn button:disabled { opacity: .5; }
-  #vpn .ok { color: #6fdc8c; } #vpn .bad { color: #ff7b72; }
-  #vpn h3 { margin: 16px 0 4px; font-size: 15px; }
-  #vpn textarea { width: 100%; font-size: 14px; padding: 8px; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; }
-  #vpn input[type=file] { color: #ccc; max-width: 100%; }
+  /* Glas: Unschärfe, leichte Spiegelkante oben, weicher Schatten */
+  .glass {
+    background: linear-gradient(140deg, rgba(255,255,255,.16), rgba(255,255,255,.03) 42%, rgba(255,255,255,.08)), var(--glass);
+    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    border: 1px solid var(--glass-bd);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.25), 0 10px 28px rgba(0,0,0,.35);
+    color: #fff;
+  }
 
-  /* Feed: vertikales Wischen mit nativem Scroll-Snapping */
+  /* Icon-Buttons: beim Drücken wird der Kreis zum Squircle (M3 Expressive) */
+  .ib { width: 48px; height: 48px; border-radius: 24px; display: grid; place-items: center; padding: 0; border: 0;
+    background: transparent; color: inherit; transition: transform .3s var(--spring), border-radius .25s var(--ease), background .2s, color .2s; }
+  .ib:active { transform: scale(.88); border-radius: 14px; }
+  .ib:disabled { opacity: .45; }
+  .ib.on { background: var(--pc); color: var(--on-pc); }
+
+  /* ---------- Obere Leiste ---------- */
+  #appbar { position: fixed; z-index: 50; top: calc(10px + env(safe-area-inset-top)); left: 10px; right: 10px;
+    display: flex; gap: 8px; align-items: center; pointer-events: none; }
+  #appbar > * { pointer-events: auto; }
+  #srcBtn { min-width: 0; flex: 0 1 auto; height: 48px; border-radius: 24px; padding: 0 16px 0 12px; display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 600; letter-spacing: .1px; transition: transform .3s var(--spring); }
+  #srcBtn:active { transform: scale(.96); }
+  #srcBtn .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #srcBtn .sub { font-weight: 400; color: rgba(255,255,255,.7); font-size: 13px; white-space: nowrap; }
+  #appbar .spacer { flex: 1; }
+  .group { display: flex; gap: 2px; padding: 3px; border-radius: 27px; flex: none; }
+  .group .ib { width: 44px; height: 44px; border-radius: 22px; }
+  .group .ib:active { border-radius: 12px; }
+
+  /* ---------- Feed ---------- */
   #feed { position: fixed; inset: 0; height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory;
     overscroll-behavior: contain; scrollbar-width: none; }
   #feed::-webkit-scrollbar { display: none; }
-
   .post { height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; position: relative; overflow: hidden; background: #000; }
-  .carousel { display: flex; height: 100%; overflow-x: scroll; scroll-snap-type: x mandatory;
-    overscroll-behavior-x: contain; scrollbar-width: none; }
+  .carousel { display: flex; height: 100%; overflow-x: scroll; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
   .carousel::-webkit-scrollbar { display: none; }
-  .slide { flex: 0 0 100%; scroll-snap-align: center; height: 100%; position: relative; display: flex;
-    align-items: center; justify-content: center; }
+  .slide { flex: 0 0 100%; scroll-snap-align: center; height: 100%; position: relative; display: flex; align-items: center; justify-content: center; background: #000; }
   .media { width: 100%; height: 100%; object-fit: contain; display: block; }
-
-  .progress { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; z-index: 4; pointer-events: none; background: rgba(255,255,255,.15); }
-  .progress .bar { height: 100%; width: 0; background: #ff4500; }
-
-  /* Wie im Addon: nur "r/Subreddit · u/Autor" unten links, Medium füllt die ganze Höhe */
-  .info { position: absolute; left: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 3; pointer-events: none; }
-  .info a { display: inline-block; max-width: 80vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font-size: 13px; color: #fff; text-decoration: none; padding: 5px 10px; border-radius: 12px;
-    background: rgba(0,0,0,.55); pointer-events: auto; }
+  .vid-loader { position: absolute; z-index: 1; pointer-events: none; opacity: .7; }
   .embed { width: 100%; height: 100%; border: 0; background: #000; }
 
-  .dots { position: absolute; left: 0; right: 0; bottom: 6px; z-index: 4; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
-  .dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.35); }
-  .dots span.on { background: #fff; }
-  .counter { position: absolute; top: calc(14px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 4; font-size: 13px; padding: 3px 8px; border-radius: 10px;
-    background: rgba(0,0,0,.55); pointer-events: none; }
+  /* Unten etwas abdunkeln, damit Chips und Leisten lesbar bleiben */
+  .post::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 32%; z-index: 2; pointer-events: none;
+    background: linear-gradient(to top, rgba(0,0,0,.55), transparent); }
 
-  .arrow { display: none; position: absolute; top: 50%; transform: translateY(-50%); z-index: 4; width: 42px; height: 42px;
-    border-radius: 50%; border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 22px; align-items: center; justify-content: center; }
-  .arrow.l { left: 8px; } .arrow.r { right: 8px; }
-  @media (hover: hover) { .arrow { display: flex; } }
+  .progress { position: absolute; left: 12px; right: 12px; bottom: calc(4px + env(safe-area-inset-bottom)); height: 4px; border-radius: 2px; z-index: 4;
+    pointer-events: none; background: rgba(255,255,255,.18); overflow: hidden; }
+  .progress .bar { height: 100%; width: 0; background: var(--p); border-radius: 2px; }
 
-  .sound { position: absolute; right: 14px; bottom: 90px; z-index: 5; width: 46px; height: 46px; border-radius: 50%;
-    border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 20px; }
-  .sound[hidden] { display: none; }
+  .info { position: absolute; left: 12px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 5; max-width: calc(100vw - 150px); }
+  .info a { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; text-decoration: none; font-size: 13px; font-weight: 500; }
+  .info a .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .info a .ic { opacity: .75; }
 
-  /* Voten und Folgen (rechts über dem Ton-Button) */
-  .rail { position: absolute; right: 14px; bottom: 150px; z-index: 5; display: flex; flex-direction: column; gap: 10px; }
-  .rail button { width: 46px; height: 46px; border-radius: 50%; border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 22px; line-height: 1; }
-  .rail button.up.on { background: #ff4500; }
-  .rail button.down.on { background: #7193ff; }
-  .rail button.follow.on { background: #2e9e5b; }
-  .rail button:disabled { opacity: .5; }
-  .toast { position: fixed; left: 50%; top: calc(60px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 50; max-width: 86vw;
-    background: rgba(0,0,0,.8); color: #fff; padding: 8px 14px; border-radius: 12px; font-size: 14px; pointer-events: none; }
+  /* Passt-zu-dir-Bewertung */
+  .match { position: absolute; z-index: 6; top: calc(68px + env(safe-area-inset-top)); right: 10px; max-width: min(78vw, 360px);
+    padding: 6px 14px 6px 6px; border-radius: 22px; font-size: 16px; font-weight: 700; text-align: left;
+    display: flex; flex-direction: column; gap: 6px; transition: transform .3s var(--spring); }
+  .match:active { transform: scale(.96); }
+  .match .row { display: flex; align-items: center; gap: 8px; }
+  .match .ring { --v: 0; --c: var(--outline); width: 32px; height: 32px; border-radius: 50%; flex: none;
+    background: conic-gradient(var(--c) calc(var(--v) * 1%), rgba(255,255,255,.18) 0); display: grid; place-items: center; }
+  .match .ring::after { content: ''; width: 22px; height: 22px; border-radius: 50%; background: rgba(20,16,15,.85); }
+  .match .num { font-variant-numeric: tabular-nums; }
+  .match .num small { font-size: 12px; font-weight: 500; opacity: .7; margin-left: 2px; }
+  .match.hi .ring { --c: var(--ok); } .match.mid .ring { --c: var(--warn); } .match.lo .ring { --c: var(--bad); }
+  .match.soft .ring { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .match ul { list-style: none; margin: 0 0 2px 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+  .match li { display: flex; align-items: center; gap: 6px; }
+  .match li.up .ic { color: var(--ok); } .match li.down .ic { color: var(--bad); }
 
+  .dots { position: absolute; left: 0; right: 0; bottom: calc(60px + env(safe-area-inset-bottom)); z-index: 4; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+  .dots span { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.4); transition: width .3s var(--spring), background .2s; }
+  .dots span.on { width: 18px; background: #fff; }
+  .counter { position: absolute; top: calc(68px + env(safe-area-inset-top)); left: 10px; z-index: 4; height: 32px; padding: 0 12px;
+    display: flex; align-items: center; gap: 6px; border-radius: 16px; font-size: 13px; font-weight: 600; pointer-events: none; font-variant-numeric: tabular-nums; }
 
-  /* NudeNet-Ergebnisse (nur sichtbar, wenn "Anzeigen" an ist) */
-  #scanBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 10px; z-index: 11; height: 44px; padding: 0 14px;
-    border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
-  #scanBtn.on { background: #ff4500; border-color: #ff4500; font-weight: 600; }
-  #scanBtn[hidden] { display: none; }
-  #ageBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 118px; z-index: 11; height: 44px; padding: 0 14px;
-    border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
-  #nowBtn { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 196px; z-index: 11; height: 44px; padding: 0 14px;
-    border-radius: 22px; border: 1px solid #444; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; }
-  #loadBadge { position: fixed; left: 10px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 12; font-size: 11px; line-height: 1.3;
-    padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.65); color: #fff; pointer-events: none; font-variant-numeric: tabular-nums; }
-  #loadBadge[hidden] { display: none; }
-  #loadBadge.busy { background: rgba(255,69,0,.8); }
-  #nowBtn[hidden] { display: none; }
-  #nowBtn:disabled { opacity: .6; }
-  #ageBtn.on { background: #1a7f37; border-color: #1a7f37; font-weight: 600; }
-  #ageBtn[hidden] { display: none; }
+  .arrow { display: none; position: absolute; top: 50%; transform: translateY(-50%); z-index: 4; }
+  .arrow.l { left: 10px; } .arrow.r { right: 76px; }
+  @media (hover: hover) { .arrow { display: grid; } }
+
+  /* Rechte Leiste: Voten, Folgen, Ton */
+  .rail { position: absolute; right: 10px; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 5; display: flex; flex-direction: column; gap: 10px; }
+  .rail .ib { width: 52px; height: 52px; border-radius: 26px; }
+  .rail .ib:active { border-radius: 16px; }
+  .rail .up.on { background: var(--pc); color: var(--on-pc); border-color: transparent; }
+  .rail .down.on { background: var(--tc); color: var(--on-tc); border-color: transparent; }
+  .rail .follow.on { background: var(--ok); color: #00391b; border-color: transparent; }
+
+  .pauseicon { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; border-radius: 38px; display: grid; place-items: center;
+    transform: translate(-50%, -50%) scale(.7); opacity: 0; transition: opacity .25s, transform .35s var(--spring); pointer-events: none; z-index: 3; }
+  .pauseicon .ic svg { width: 40px; height: 40px; }
+  .pauseicon.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+  /* Snackbar */
+  .toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 60; max-width: min(90vw, 480px);
+    padding: 12px 18px; border-radius: 16px; font-size: 14px; pointer-events: none; display: flex; gap: 10px; align-items: center;
+    animation: rise .3s var(--ease); }
+  @keyframes rise { from { opacity: 0; transform: translate(-50%, 12px); } }
+
+  .meter { height: 10px; border-radius: 5px; background: rgba(255,255,255,.08); overflow: hidden; margin: 10px 0 4px; }
+  .meter i { display: block; height: 100%; border-radius: 5px; background: var(--ok); transition: width .6s var(--ease), background .3s; }
+  .meter.mid i { background: var(--warn); } .meter.hi i { background: var(--bad); }
+  .perf .big { font-size: 28px; font-weight: 700; color: var(--on-surf); font-variant-numeric: tabular-nums; }
+
+  /* Alters-Filter-Markierung */
   .post[data-agehide="1"] { display: none; }
   .post[data-agebad="1"]::after { content: attr(data-agetxt); position: absolute; inset: 0; z-index: 6; pointer-events: none;
     box-shadow: inset 0 0 0 4px #e5202e, inset 0 0 60px rgba(229,32,46,.55); color: #fff; font-size: 13px; font-weight: 600;
-    padding: calc(64px + env(safe-area-inset-top)) 0 0 0; text-align: center; text-shadow: 0 1px 3px #000; }
-  .scaninfo .chip.agebad { background: rgba(229,32,46,.92); font-weight: 600; }
-  #ageDlg { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.7); padding: 16px; }
-  #ageDlg[hidden] { display: none; }
-  #ageDlg .card { width: 100%; max-width: 380px; background: #181818; border: 1px solid #333; border-radius: 14px; padding: 16px; color: #fff; }
-  #ageDlg h2 { margin: 0 0 8px; font-size: 18px; }
-  #ageDlg p { margin: 8px 0; font-size: 14px; color: #ccc; line-height: 1.4; }
-  #ageDlg label { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 15px; }
-  #ageDlg input[type=number] { width: 80px; font-size: 16px; padding: 8px; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; }
-  #ageDlg .row { display: flex; gap: 8px; margin-top: 14px; }
-  #ageDlg button { font-size: 16px; padding: 9px 12px; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; }
-  #ageDlg button.primary { background: #ff4500; border-color: #ff4500; font-weight: 600; }
+    padding: calc(112px + env(safe-area-inset-top)) 0 0 0; text-align: center; text-shadow: 0 1px 3px #000; }
+
+  /* Scan-Ergebnisse (nur sichtbar, wenn das Overlay an ist) */
   .scanbox { display: none; position: absolute; z-index: 3; pointer-events: none; }
   body.scan-on .scanbox { display: block; }
-  .scanbox .bx { position: absolute; border: 2px solid #ff4500; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
-  .scanbox .bx.cov { border-color: #4aa3ff; }
+  .scanbox .bx { position: absolute; border: 2px solid var(--pc); border-radius: 8px; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .scanbox .bx.cov { border-color: var(--tc); }
   .scanbox canvas.pose { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .scanbox .bx span { position: absolute; left: -2px; top: -18px; font-size: 11px; line-height: 14px; padding: 1px 5px; border-radius: 4px;
-    background: #ff4500; color: #fff; white-space: nowrap; }
-  .scanbox .bx.cov span { background: #2b78c4; }
-  .scaninfo { display: none; position: absolute; z-index: 4; left: 12px; right: 74px; bottom: calc(52px + env(safe-area-inset-bottom));
-    flex-wrap: wrap; gap: 6px; pointer-events: none; }
+  .scanbox .bx span { position: absolute; left: -2px; top: -22px; font-size: 11px; font-weight: 600; line-height: 18px; padding: 0 7px; border-radius: 9px;
+    background: var(--pc); color: var(--on-pc); white-space: nowrap; }
+  .scanbox .bx.cov span { background: var(--tc); color: var(--on-tc); }
+  .scaninfo { display: none; position: absolute; z-index: 4; left: 12px; right: 74px; bottom: calc(60px + env(safe-area-inset-bottom));
+    flex-wrap: wrap; gap: 6px; pointer-events: none; max-height: 42dvh; overflow: hidden; align-content: flex-end; }
   body.scan-on .scaninfo { display: flex; }
-  .scaninfo .chip { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: rgba(0,0,0,.7); color: #fff; }
-  .scaninfo .chip.hit { background: rgba(255,69,0,.85); }
-  .scaninfo .chip.cov { background: rgba(43,120,196,.85); }
-  .scaninfo .chip .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 3px -1px 0; border: 1px solid rgba(255,255,255,.7); }
-  .scaninfo .chip.pose { background: rgba(30,150,90,.85); }
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; line-height: 1.3; padding: 5px 10px 5px 8px; border-radius: 10px;
+    background: rgba(20,16,15,.55); backdrop-filter: blur(14px) saturate(160%); -webkit-backdrop-filter: blur(14px) saturate(160%);
+    border: 1px solid rgba(255,255,255,.12); color: #fff; flex-wrap: wrap; }
+  .chip.hit { background: rgba(255,107,61,.55); border-color: rgba(255,160,130,.4); }
+  .chip.cov { background: rgba(70,110,200,.5); border-color: rgba(150,180,255,.35); }
+  .chip.pose { background: rgba(30,120,80,.5); border-color: rgba(120,230,170,.3); }
+  .chip.agebad { background: rgba(229,32,46,.85); font-weight: 700; }
+  .chip .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 1px -1px 0; border: 1px solid rgba(255,255,255,.7); }
 
-  .pauseicon { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 64px; opacity: 0;
-    transition: opacity .3s; pointer-events: none; z-index: 2; text-shadow: 0 0 12px rgba(0,0,0,.6); }
-  .pauseicon.show { opacity: .85; }
-
-
-  /* Zustände (Hinweis, Laden, Fehler, leer) */
-  .state { height: 100dvh; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 14px; padding: 24px; text-align: center; color: #ccc; }
-  .state p { margin: 0; max-width: 420px; line-height: 1.5; }
-  .state .err { color: #ff6b6b; }
-  .state button { font-size: 16px; padding: 10px 16px; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; }
-  .examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-  .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top-color: #ff4500; border-radius: 50%;
-    animation: spin .9s linear infinite; }
+  /* ---------- Zustände ---------- */
+  .state { height: 100dvh; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px; text-align: center; color: var(--on-surf-v); background: var(--surf); }
+  .state p { margin: 0; max-width: 420px; line-height: 1.5; font-size: 15px; }
+  .state .bigic { width: 72px; height: 72px; border-radius: 24px; display: grid; place-items: center; background: var(--surf-3); color: var(--p); }
+  .state .bigic.err { color: var(--bad); }
+  .state .bigic svg { width: 36px; height: 36px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* M3-Expressive-Ladeanzeige: eine Form, die sich dreht und dabei verwandelt */
+  .loader { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: var(--surf-2); flex: none; }
+  .loader::before { content: ''; width: 42px; height: 42px; background: var(--p); animation: morph 2.6s var(--ease) infinite, spin 1.6s linear infinite; }
+  .loader.sm { width: 22px; height: 22px; background: transparent; }
+  .loader.sm::before { width: 14px; height: 14px; }
+  @keyframes morph {
+    0%, 100% { border-radius: 50%; transform: scale(1); }
+    20% { border-radius: 30% 70% 62% 38% / 42% 34% 66% 58%; transform: scale(.9); }
+    40% { border-radius: 22%; transform: scale(1.05); }
+    60% { border-radius: 50% 50% 22% 50%; transform: scale(.92); }
+    80% { border-radius: 38% 62% 40% 60% / 60% 40% 60% 40%; transform: scale(1.02); }
+  }
+  .spin svg { animation: spin 1.1s linear infinite; }
+  #intro { position: fixed; inset: 0; z-index: 35; height: auto; background: var(--surf); transition: opacity .3s var(--ease);
+    padding-top: calc(74px + env(safe-area-inset-top)); box-sizing: border-box; }
+  #intro.out { opacity: 0; pointer-events: none; }
+  #intro .btn { margin-top: 8px; height: 52px; padding: 0 28px 0 22px; border-radius: 26px; font-size: 16px; }
+  .state h3 { margin: 0; font-size: 20px; font-weight: 600; color: var(--on-surf); }
+  .state .stats { width: 100%; max-width: 380px; }
+  .state .note { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+
+  /* 2x-Geschwindigkeit Badge */
+  .speed-badge { position: absolute; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px;
+    background: rgba(0,0,0,.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,.2); color: #fff; font-size: 14px; font-weight: 700;
+    letter-spacing: .5px; z-index: 15; pointer-events: none; animation: pulse 1s infinite alternate; }
+  .speed-badge .ic svg { width: 18px; height: 18px; fill: currentColor; }
+
+  /* Gefolgt-Liste */
+  .following-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .following-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px;
+    border-radius: 18px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); cursor: pointer; transition: background .2s; }
+  .following-row:active { background: rgba(255,255,255,.1); }
+  .following-info { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+  .following-avatar { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; font-size: 16px; font-weight: 700;
+    background: var(--pc); color: var(--on-pc); flex: none; text-transform: uppercase; }
+  .following-avatar.rg { background: #ff4081; color: #fff; }
+  .following-names { display: flex; flex-direction: column; min-width: 0; }
+  .following-name { font-size: 15px; font-weight: 600; color: var(--on-surf); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .following-badge { font-size: 11px; font-weight: 600; color: var(--on-surf-v); display: flex; align-items: center; gap: 4px; }
+  .following-badge.rg { color: #ff80ab; }
+  .following-badge.rd { color: #ff8a65; }
+  .following-empty { text-align: center; padding: 40px 16px; color: var(--on-surf-v); font-size: 14px; line-height: 1.5; }
+
+  .heart { position: fixed; z-index: 30; width: 110px; height: 110px; margin: -55px 0 0 -55px; pointer-events: none; color: var(--pc);
+    filter: drop-shadow(0 6px 18px rgba(0,0,0,.45)); animation: heart .8s var(--spring) forwards; }
+  .heart svg { width: 100%; height: 100%; }
+  @keyframes heart { 0% { transform: scale(.2) rotate(-12deg); opacity: 0; } 25% { transform: scale(1.1) rotate(4deg); opacity: 1; }
+    60% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.25) translateY(-40px); opacity: 0; } }
+  .post { touch-action: manipulation; }
+
+  /* ---------- Buttons, Felder, Schalter ---------- */
+  .btn { height: 44px; padding: 0 20px 0 16px; border-radius: 22px; border: 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 15px; font-weight: 600; background: var(--pc); color: var(--on-pc); transition: transform .3s var(--spring), border-radius .25s, filter .2s; }
+  .btn:active { transform: scale(.95); border-radius: 14px; }
+  .btn:disabled { opacity: .4; }
+  .btn .ic svg { width: 20px; height: 20px; }
+  .btn.tonal { background: var(--sc); color: var(--on-sc); }
+  .btn.outlined { background: transparent; color: var(--on-surf); border: 1px solid var(--outline); }
+  .btn.danger { background: transparent; color: var(--bad); border: 1px solid rgba(255,180,171,.5); }
+  .btn.text { background: transparent; color: var(--p); padding: 0 12px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+  .tf { width: 100%; font-size: 16px; padding: 14px 16px; border-radius: 16px; border: 1px solid var(--outline-v); background: rgba(255,255,255,.05);
+    color: var(--on-surf); transition: border-color .2s, box-shadow .2s; }
+  .tf:focus { outline: none; border-color: var(--p); box-shadow: inset 0 0 0 1px var(--p); }
+  textarea.tf { resize: vertical; font-family: ui-monospace, monospace; font-size: 14px; }
+  .tfwrap { position: relative; display: flex; align-items: center; }
+  .tfwrap > .ic { position: absolute; left: 14px; color: var(--on-surf-v); pointer-events: none; }
+  .tfwrap .tf { padding-left: 48px; padding-right: 48px; }
+  .tfwrap .ib { position: absolute; right: 2px; width: 44px; height: 44px; color: var(--on-surf-v); }
+
+  input.sw { appearance: none; -webkit-appearance: none; width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--outline);
+    background: var(--surf-3); position: relative; flex: none; margin: 0; cursor: pointer; transition: background .2s, border-color .2s; }
+  input.sw::before { content: ''; position: absolute; top: 50%; left: 6px; width: 16px; height: 16px; border-radius: 50%; background: var(--outline);
+    transform: translateY(-50%); transition: left .3s var(--spring), width .2s, height .2s, background .2s; }
+  input.sw:checked { background: var(--pc); border-color: var(--pc); }
+  input.sw:checked::before { left: 22px; width: 24px; height: 24px; background: #fff; }
+  input.sw:active::before { width: 28px; height: 28px; }
+
+  .seg { display: flex; gap: 4px; padding: 4px; border-radius: 24px; background: rgba(255,255,255,.05); border: 1px solid var(--outline-v);
+    overflow-x: auto; scrollbar-width: none; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { flex: 1 0 auto; height: 38px; padding: 0 14px; border: 0; border-radius: 19px; background: transparent; color: var(--on-surf-v);
+    font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+    transition: background .2s, color .2s, border-radius .25s var(--ease); }
+  .seg button:active { border-radius: 10px; }
+  .seg button .ic svg { width: 18px; height: 18px; }
+  .seg button[aria-checked="true"] { background: var(--p); color: var(--on-p); }
+
+  .stepper { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 22px; background: rgba(255,255,255,.06); flex: none; }
+  .stepper .ib { width: 36px; height: 36px; border-radius: 18px; background: var(--surf-3); color: var(--on-surf); }
+  .stepper .ib .ic svg { width: 20px; height: 20px; }
+  .stepper input { width: 44px; text-align: center; background: transparent; border: 0; color: var(--on-surf); font-size: 16px; font-weight: 700;
+    -moz-appearance: textfield; appearance: textfield; }
+  .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .stepper input:focus { outline: none; }
+
+  .chipbtn { height: 36px; padding: 0 14px 0 10px; border-radius: 12px; border: 1px solid var(--outline-v); background: rgba(255,255,255,.04);
+    color: var(--on-surf); font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: transform .25s var(--spring); }
+  .chipbtn:active { transform: scale(.95); }
+  .chipbtn .ic { color: var(--p); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* ---------- Bottom-Sheets / Einstellungen ---------- */
+  .sheet { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.5);
+    animation: fade .25s var(--ease); }
+  .sheet .panel { width: 100%; max-width: 560px; max-height: 94dvh; overflow-y: auto; overscroll-behavior: contain; border-radius: 28px 28px 0 0;
+    padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+    background: linear-gradient(170deg, rgba(255,255,255,.08), rgba(255,255,255,0) 30%), rgba(26,22,21,.82);
+    backdrop-filter: blur(32px) saturate(180%); -webkit-backdrop-filter: blur(32px) saturate(180%);
+    border: 1px solid var(--glass-bd); border-bottom: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 -10px 40px rgba(0,0,0,.4);
+    animation: up .4s var(--ease); }
+  .sheet.closing { animation: fade .2s var(--ease) reverse forwards; }
+  .sheet.closing .panel { animation: down .22s var(--ease) forwards; }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes up { from { transform: translateY(100%); } }
+  @keyframes down { to { transform: translateY(100%); } }
+  @media (min-width: 720px) {
+    .sheet { align-items: center; }
+    .sheet .panel { border-radius: 28px; border-bottom: 1px solid var(--glass-bd); padding-bottom: 24px; }
+    @keyframes up { from { transform: translateY(24px) scale(.97); opacity: 0; } }
+    @keyframes down { to { transform: translateY(24px) scale(.97); opacity: 0; } }
+  }
+  .handle { width: 32px; height: 4px; border-radius: 2px; background: var(--outline); opacity: .6; margin: 10px auto 4px; }
+  .shead { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 8px 0 12px; margin: 0 -4px;
+    background: linear-gradient(rgba(26,22,21,.95) 70%, rgba(26,22,21,0)); }
+  .shead h2 { flex: 1; margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.2px; }
+  .shead .ib { color: var(--on-surf); background: rgba(255,255,255,.07); }
+
+  .sect { margin: 18px 0 8px 4px; font-size: 13px; font-weight: 700; letter-spacing: .4px; color: var(--p); text-transform: uppercase; }
+  .card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.06); border-radius: 24px; padding: 16px; margin-bottom: 4px; }
+  .card + .card { margin-top: 8px; }
+  .card.list { padding: 4px 0; }
+  .item { display: flex; align-items: center; gap: 14px; padding: 12px 16px; min-height: 64px; }
+  .item + .item { border-top: 1px solid rgba(255,255,255,.06); }
+  .item .lead { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; background: var(--sc); color: var(--on-sc); flex: none; }
+  .item .lead svg { width: 22px; height: 22px; }
+  .item .txt { flex: 1; min-width: 0; }
+  .item .tt { font-size: 16px; font-weight: 500; }
+  .item .st { font-size: 13px; color: var(--on-surf-v); line-height: 1.4; margin-top: 2px; }
+  .item.col { flex-wrap: wrap; }
+  .chead { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .chead .lead { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; background: var(--sc); color: var(--on-sc); flex: none; }
+  .chead .tt { font-size: 17px; font-weight: 600; }
+  .card p, .help { margin: 8px 0; font-size: 14px; color: var(--on-surf-v); line-height: 1.5; }
+  .card code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 6px; font-size: 13px; }
+  .status { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--on-surf-v); line-height: 1.45; margin: 8px 0; }
+  .status:empty { display: none; }
+  .status .ic { margin-top: 1px; }
+  .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+  .range { display: flex; align-items: center; gap: 8px; padding: 0 16px 14px; flex-wrap: wrap; font-size: 14px; color: var(--on-surf-v); }
+  @media (min-width: 440px) { .range { padding-left: 70px; } }
+  .range .stepper input { width: 36px; }
+  .stats { display: flex; gap: 8px; margin: 8px 0; }
+  .stat { flex: 1; background: rgba(255,255,255,.05); border-radius: 16px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 22px; font-weight: 700; color: var(--on-surf); font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--on-surf-v); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+  .tag { font-size: 13px; padding: 4px 10px; border-radius: 8px; background: rgba(139,224,164,.14); color: var(--ok); }
+  .tags.neg .tag { background: rgba(255,180,171,.14); color: var(--bad); }
+  .lbl2 { font-size: 13px; font-weight: 600; color: var(--on-surf-v); margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+  .filepick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .filepick .fname { font-size: 13px; color: var(--on-surf-v); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 </style>
 </head>
 <body>
 
-<div id="topbar">
-  <form id="form" autocomplete="off">
-    <input id="q" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
-      placeholder="leer = deine Startseite, oder Link wie https://www.reddit.com/r/aww/">
-    <button class="primary" type="submit">Laden</button>
-    <button id="homeBtn" type="button" title="Startseite (dein Feed)">Start</button>
-    <button id="vpnBtn" type="button" aria-label="VPN-Einstellungen" title="VPN-Einstellungen">VPN</button>
-    <select id="sort" aria-label="Sortierung">
-      <option value="best">Best</option>
-      <option value="hot">Hot</option>
-      <option value="new">Neu</option>
-      <option value="top">Top</option>
-      <option value="rising">Rising</option>
-    </select>
-    <select id="t" aria-label="Zeitraum" hidden>
-      <option value="hour">Stunde</option>
-      <option value="day">Tag</option>
-      <option value="week">Woche</option>
-      <option value="month">Monat</option>
-      <option value="year">Jahr</option>
-      <option value="all">Alle</option>
-    </select>
-  </form>
-</div>
+<!-- Obere Leiste: Quelle links, Werkzeuge rechts -->
+<header id="appbar">
+  <button id="srcBtn" class="glass" type="button" aria-label="Quelle wählen">
+    <span class="ic" data-ic="search"></span><span class="lbl" id="srcLabel">Mein Feed</span><span class="sub" id="srcSort"></span>
+  </button>
+  <span class="spacer"></span>
+  <div class="group glass">
+    <button id="modeToggleBtn" class="ib" type="button" aria-label="Modus wechseln" title="Zwischen Gescannt und Live wechseln"><span class="ic" data-ic="public"></span></button>
+    <button id="followSheetBtn" class="ib" type="button" aria-label="Gefolgt" title="Gefolgte Creator"><span class="ic" data-ic="person_check"></span></button>
+    <button id="setBtn" class="ib" type="button" aria-label="Einstellungen" title="Einstellungen"><span class="ic" data-ic="settings"></span></button>
+  </div>
+</header>
 
-<button id="menuBtn" type="button" aria-label="Menü" hidden>☰</button>
-<button id="ageBtn" type="button" title="Beiträge mit zu jungen oder zu alten Personen ausblenden" hidden>Alter</button>
-<button id="nowBtn" type="button" title="Diesen Beitrag jetzt sofort scannen, vor allen anderen" hidden>Scannen</button>
-<button id="scanBtn" type="button" title="NudeNet-Ergebnisse anzeigen (der Scan läuft immer im Hintergrund)" aria-pressed="false" hidden>Anzeigen</button>
-
-<div id="ageDlg" role="dialog" aria-modal="true" aria-labelledby="ageTitle" hidden>
-  <div class="card">
-    <h2 id="ageTitle">Alters-Filter</h2>
-    <p>Welches geschätzte Alter willst du sehen? Beiträge mit Personen außerhalb des Bereichs werden rot markiert (oder ausgeblendet). Die Schätzung ist nur grob (±5–8 Jahre).</p>
-    <label><input id="ageOn" type="checkbox"> Filter aktiv</label>
-    <label>Von <input id="ageMin" type="number" min="0" max="120" inputmode="numeric"> bis <input id="ageMax" type="number" min="0" max="120" inputmode="numeric"> Jahre</label>
-    <label><input id="ageHide" type="checkbox"> Außerhalb ausblenden statt rot anzeigen</label>
-    <div class="row"><button id="ageSave" class="primary" type="button">Speichern</button><button id="ageCancel" type="button">Abbrechen</button></div>
+<!-- Gefolgte Creator (Reddit & RedGIFs) -->
+<div id="followingSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="followingTitle" hidden>
+  <div class="panel">
+    <div class="handle"></div>
+    <div class="shead">
+      <h2 id="followingTitle">Gefolgte Creator</h2>
+      <button class="ib" type="button" data-close aria-label="Schließen"><span class="ic" data-ic="close"></span></button>
+    </div>
+    <div id="followingList" class="following-list"></div>
   </div>
 </div>
 
-<div id="loadBadge" hidden></div>
+<!-- Quelle: Link, Sortierung, Beispiele -->
+<div id="srcSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="srcTitle" hidden>
+  <div class="panel">
+    <div class="handle"></div>
+    <div class="shead"><h2 id="srcTitle">Quelle</h2>
+      <button class="ib" type="button" data-close aria-label="Schließen"><span class="ic" data-ic="close"></span></button></div>
+    <form id="form" autocomplete="off">
+      <div class="tfwrap">
+        <span class="ic" data-ic="link"></span>
+        <input id="q" class="tf" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"
+          placeholder="r/aww, Multireddit-Link oder leer = Startseite">
+        <button id="qClear" class="ib" type="button" aria-label="Leeren"><span class="ic" data-ic="close"></span></button>
+      </div>
+      <div class="btns">
+        <button class="btn" type="submit"><span class="ic" data-ic="arrow_forward"></span>Laden</button>
+        <button id="homeBtn" class="btn tonal" type="button"><span class="ic" data-ic="home"></span>Mein Feed</button>
+      </div>
+    </form>
+    <div class="sect">Modus</div>
+    <div id="mode" class="seg" role="radiogroup" aria-label="Modus">
+      <button type="button" role="radio" data-v="pool"><span class="ic" data-ic="favorite"></span>Gescannt, für dich</button>
+      <button type="button" role="radio" data-v="live"><span class="ic" data-ic="public"></span>Live von Reddit</button>
+    </div>
+    <p class="help" id="modeHelp"></p>
+    <div id="liveOpts">
+    <div class="sect">Sortierung</div>
+    <div id="sort" class="seg" role="radiogroup" aria-label="Sortierung">
+      <button type="button" role="radio" data-v="best"><span class="ic" data-ic="star"></span>Best</button>
+      <button type="button" role="radio" data-v="hot"><span class="ic" data-ic="whatshot"></span>Hot</button>
+      <button type="button" role="radio" data-v="new"><span class="ic" data-ic="new"></span>Neu</button>
+      <button type="button" role="radio" data-v="top"><span class="ic" data-ic="trophy"></span>Top</button>
+      <button type="button" role="radio" data-v="rising"><span class="ic" data-ic="trending_up"></span>Rising</button>
+    </div>
+    <div id="tWrap">
+      <div class="sect">Zeitraum</div>
+      <div id="t" class="seg" role="radiogroup" aria-label="Zeitraum">
+        <button type="button" role="radio" data-v="hour">Stunde</button>
+        <button type="button" role="radio" data-v="day">Tag</button>
+        <button type="button" role="radio" data-v="week">Woche</button>
+        <button type="button" role="radio" data-v="month">Monat</button>
+        <button type="button" role="radio" data-v="year">Jahr</button>
+        <button type="button" role="radio" data-v="all">Alle</button>
+      </div>
+    </div>
+    </div>
+    <div class="sect">Schnellwahl</div>
+    <div class="chips">
+      <button class="chipbtn ex" type="button" data-q="home"><span class="ic s" data-ic="public"></span>Reddit-Startseite</button>
+      <button class="chipbtn ex" type="button" data-q="https://www.reddit.com/r/aww/"><span class="ic s" data-ic="tag"></span>r/aww</button>
+      <button class="chipbtn ex" type="button" data-q="https://www.reddit.com/r/EarthPorn/"><span class="ic s" data-ic="tag"></span>r/EarthPorn</button>
+      <button class="chipbtn ex" type="button" data-q="https://www.reddit.com/r/interestingasfuck/"><span class="ic s" data-ic="tag"></span>r/interestingasfuck</button>
+    </div>
+  </div>
+</div>
 
-<div id="vpn" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
-  <div class="card">
-    <h2 id="vpnTitle">Einstellungen</h2>
-    <h3>VPN (WireGuard)</h3>
-    <p id="vpnState">Status wird geladen …</p>
-    <p>Lade die komplette WireGuard-<code>.conf</code> hoch (z. B. aus der Fritz!Box). Die Schlüssel werden nur auf dem Server gespeichert.</p>
-    <input id="vpnFile" type="file" accept=".conf,text/plain" aria-label="WireGuard-Config auswählen">
-    <p id="vpnMsg" role="status"></p>
-    <div class="row">
-      <button id="vpnSend" class="primary" type="button" disabled>Hochladen</button>
+<!-- Einstellungen -->
+<div id="vpn" class="sheet" role="dialog" aria-modal="true" aria-labelledby="vpnTitle" hidden>
+  <div class="panel">
+    <div class="handle"></div>
+    <div class="shead"><h2 id="vpnTitle">Einstellungen</h2>
+      <button id="vpnClose" class="ib" type="button" aria-label="Schließen"><span class="ic" data-ic="close"></span></button></div>
+
+    <div class="sect">Anzeige</div>
+    <div class="card list">
+      <label class="item">
+        <span class="lead"><span class="ic" data-ic="visibility"></span></span>
+        <span class="txt"><span class="tt">Scan-Overlay</span><span class="st" style="display:block">Rahmen, Skelett und Personen-Infos über dem Bild. Gescannt wird immer im Hintergrund.</span></span>
+        <input id="scanSw" class="sw" type="checkbox">
+      </label>
+      <div class="item">
+        <span class="lead"><span class="ic" data-ic="bolt"></span></span>
+        <span class="txt"><span class="tt">Jetzt scannen</span><span class="st" style="display:block">Den gerade sichtbaren Beitrag sofort neu scannen, vor allem anderen.</span></span>
+        <button id="nowBtn" class="btn tonal" type="button"><span class="ic" data-ic="bolt"></span>Scannen</button>
+      </div>
+      <label class="item" id="ageSect">
+        <span class="lead"><span class="ic" data-ic="cake"></span></span>
+        <span class="txt"><span class="tt">Alters-Filter</span><span class="st" style="display:block">Personen außerhalb des Bereichs markieren. Die Schätzung ist grob (±5–8 Jahre).</span></span>
+        <input id="ageOn" class="sw" type="checkbox">
+      </label>
+      <div class="range" id="ageRange">
+        Von
+        <span class="stepper"><button class="ib" type="button" data-step="-1" data-for="ageMin" aria-label="weniger"><span class="ic" data-ic="remove"></span></button>
+          <input id="ageMin" type="number" min="0" max="120" inputmode="numeric" aria-label="Mindestalter">
+          <button class="ib" type="button" data-step="1" data-for="ageMin" aria-label="mehr"><span class="ic" data-ic="add"></span></button></span>
+        bis
+        <span class="stepper"><button class="ib" type="button" data-step="-1" data-for="ageMax" aria-label="weniger"><span class="ic" data-ic="remove"></span></button>
+          <input id="ageMax" type="number" min="0" max="120" inputmode="numeric" aria-label="Höchstalter">
+          <button class="ib" type="button" data-step="1" data-for="ageMax" aria-label="mehr"><span class="ic" data-ic="add"></span></button></span>
+      </div>
+      <label class="item">
+        <span class="lead"><span class="ic" data-ic="hide"></span></span>
+        <span class="txt"><span class="tt">Ausblenden statt markieren</span><span class="st" style="display:block">Beiträge außerhalb des Alters ganz überspringen.</span></span>
+        <input id="ageHide" class="sw" type="checkbox">
+      </label>
     </div>
-    <h3>Scan-Geschwindigkeit</h3>
-    <p id="wkState">Status wird geladen …</p>
-    <p>Wie viele Medien gleichzeitig gescannt werden (1–12). Mehr ist schneller, belastet den Server aber stärker.</p>
-    <label>Gleichzeitig <input id="wkN" type="number" min="1" max="12" inputmode="numeric" style="width:70px"></label>
-    <p>Teile pro Video: Ein Video wird in so viele Zeitabschnitte zerlegt, die gleichzeitig gescannt werden. Mehr Teile = ein einzelnes Video wird schneller fertig.</p>
-    <label>Teile pro Video <input id="wkParts" type="number" min="1" max="16" inputmode="numeric" style="width:70px"> (1–16)</label>
-    <div class="row"><button id="wkSave" class="primary" type="button">Übernehmen</button></div>
-    <h3>Reddit-Login</h3>
-    <p id="rdState">Status wird geladen …</p>
-    <p>Reddit gibt anonym keine Beiträge mehr heraus. Füge den Cookie deines Reddit-Accounts ein
-      (am PC auf reddit.com: F12 → Application/Speicher → Cookies → <code>reddit_session</code>, als
-      <code>reddit_session=WERT</code>). Er gilt wie ein Passwort; nimm am besten einen Zweit-Account.</p>
-    <textarea id="rdCookie" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"
-      aria-label="Reddit-Cookie" placeholder="reddit_session=…"></textarea>
-    <p id="rdMsg" role="status"></p>
-    <div class="row">
-      <button id="rdSave" class="primary" type="button">Login speichern</button>
-      <button id="rdOut" type="button">Abmelden</button>
-      <button id="vpnClose" type="button">Schließen</button>
+
+    <div class="sect">Vorrat (Gescannt-Modus)</div>
+    <div class="card">
+      <div class="chead"><span class="lead"><span class="ic" data-ic="layers"></span></span><span class="tt">Im Hintergrund gescannt</span></div>
+      <div id="poolState" class="status">Wird geladen …</div>
     </div>
+    <div class="card">
+      <label class="chead" style="cursor:pointer">
+        <span class="lead"><span class="ic" data-ic="whatshot"></span></span>
+        <span class="tt" style="flex:1">RedGIFs-Nischen mischen</span>
+        <input id="rgOn" class="sw" type="checkbox">
+      </label>
+      <p>Holt zusätzlich Clips aus RedGIFs-Nischen in den Vorrat. Sie werden genauso erst gescannt und dann nach deinem Geschmack einsortiert. Namen oder Links wie <code>redgifs.com/niches/just-boobs</code>, getrennt durch Komma.</p>
+      <textarea id="rgNiches" class="tf" rows="4" spellcheck="false" autocapitalize="off" aria-label="RedGIFs-Nischen"></textarea>
+      <div class="btns">
+        <button id="rgSave" class="btn tonal" type="button"><span class="ic" data-ic="check"></span>Übernehmen</button>
+        <button id="rgDefault" class="btn text" type="button"><span class="ic" data-ic="restart"></span>Standard-Liste</button>
+      </div>
+    </div>
+
+    <div class="sect">Geschmack</div>
+    <div class="card">
+      <div class="chead"><span class="lead"><span class="ic" data-ic="favorite"></span></span><span class="tt">Was die App gelernt hat</span></div>
+      <div id="tasteState" class="status">Wird geladen …</div>
+      <div class="btns"><button id="tasteReset" class="btn danger" type="button"><span class="ic" data-ic="restart"></span>Gelerntes zurücksetzen</button></div>
+    </div>
+
+    <div class="sect">Scanner</div>
+    <div class="card list">
+      <div class="item col perf">
+        <span class="lead"><span class="ic" data-ic="memory"></span></span>
+        <span class="txt"><span class="tt">Leistung</span>
+          <span class="st" style="display:block">CPU-Auslastung des Servers</span></span>
+        <span class="big" id="cpuPct">–</span>
+        <div style="flex-basis:100%">
+          <div class="meter" id="cpuMeter"><i style="width:0"></i></div>
+          <div class="st" id="wkState" style="color:var(--on-surf-v);font-size:13px">Wird geladen …</div>
+          <div id="wkTiles"></div>
+        </div>
+      </div>
+      <div class="item">
+        <span class="lead"><span class="ic" data-ic="layers"></span></span>
+        <span class="txt"><span class="tt">Gleichzeitig</span><span class="st" style="display:block">Medien parallel (1–12). Mehr ist schneller, belastet den Server stärker.</span></span>
+        <span class="stepper"><button class="ib" type="button" data-step="-1" data-for="wkN" aria-label="weniger"><span class="ic" data-ic="remove"></span></button>
+          <input id="wkN" type="number" min="1" max="12" inputmode="numeric" aria-label="Gleichzeitige Scans">
+          <button class="ib" type="button" data-step="1" data-for="wkN" aria-label="mehr"><span class="ic" data-ic="add"></span></button></span>
+      </div>
+      <div class="item">
+        <span class="lead"><span class="ic" data-ic="splitscreen"></span></span>
+        <span class="txt"><span class="tt">Teile pro Video</span><span class="st" style="display:block">Video in Abschnitte zerlegen, die parallel laufen (1–16).</span></span>
+        <span class="stepper"><button class="ib" type="button" data-step="-1" data-for="wkParts" aria-label="weniger"><span class="ic" data-ic="remove"></span></button>
+          <input id="wkParts" type="number" min="1" max="16" inputmode="numeric" aria-label="Teile pro Video">
+          <button class="ib" type="button" data-step="1" data-for="wkParts" aria-label="mehr"><span class="ic" data-ic="add"></span></button></span>
+      </div>
+      <div class="item"><span class="txt"></span><button id="wkSave" class="btn tonal" type="button"><span class="ic" data-ic="check"></span>Übernehmen</button></div>
+    </div>
+
+    <div class="sect">Konto</div>
+    <div class="card">
+      <div class="chead"><span class="lead"><span class="ic" data-ic="account"></span></span><span class="tt">Reddit-Login</span></div>
+      <div id="rdState" class="status">Status wird geladen …</div>
+      <p>Füge den Cookie deines Reddit-Accounts ein (am PC auf reddit.com: F12, dann Application, Cookies, <code>reddit_session</code>, als
+        <code>reddit_session=WERT</code>). Er gilt wie ein Passwort, nimm am besten einen Zweit-Account.</p>
+      <textarea id="rdCookie" class="tf" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Reddit-Cookie" placeholder="reddit_session=…"></textarea>
+      <div id="rdMsg" class="status" role="status"></div>
+      <div class="btns">
+        <button id="rdSave" class="btn" type="button"><span class="ic" data-ic="login"></span>Login speichern</button>
+        <button id="rdOut" class="btn outlined" type="button"><span class="ic" data-ic="logout"></span>Abmelden</button>
+      </div>
+    </div>
+
+    <div class="sect">Netzwerk</div>
+    <div class="card">
+      <div class="chead"><span class="lead"><span class="ic" data-ic="vpn"></span></span><span class="tt">VPN (WireGuard)</span></div>
+      <div id="vpnState" class="status">Status wird geladen …</div>
+      <p>Lade die komplette WireGuard-<code>.conf</code> hoch (z. B. aus der Fritz!Box). Die Schlüssel bleiben auf dem Server.</p>
+      <input id="vpnFile" type="file" accept=".conf,text/plain" aria-label="WireGuard-Config auswählen" hidden>
+      <div class="filepick">
+        <button id="vpnPick" class="btn tonal" type="button"><span class="ic" data-ic="file"></span>Datei wählen</button>
+        <span id="vpnName" class="fname"></span>
+      </div>
+      <div id="vpnMsg" class="status" role="status"></div>
+      <div class="btns"><button id="vpnSend" class="btn" type="button" disabled><span class="ic" data-ic="upload"></span>Hochladen</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="intro" class="state" role="dialog" aria-labelledby="introTitle" hidden>
+  <div class="loader"></div>
+  <h3 id="introTitle">Scanne im Hintergrund</h3>
+  <p>Hier erscheinen nur fertig gescannte Beiträge, die du noch nicht gesehen hast, die besten für dich zuerst.</p>
+  <div id="introLive" style="display:contents"></div>
+  <div class="btns" style="justify-content:center; margin-top:8px;">
+    <button id="introGo" class="btn" type="button"><span class="ic" data-ic="arrow_forward"></span>Weiter</button>
+    <button id="introLiveBtn" class="btn tonal" type="button"><span class="ic" data-ic="public"></span>Live-Vorschau</button>
   </div>
 </div>
 
 <div id="feed">
-  <div id="hint" class="state">
-    <p>Lädt deine Startseite … Oder gib oben einen Subreddit-Link ein.</p>
-    <div class="examples">
-      <button class="ex" type="button" data-q="">Startseite</button>
-      <button class="ex" type="button" data-q="https://www.reddit.com/r/aww/">r/aww</button>
-      <button class="ex" type="button" data-q="https://www.reddit.com/r/EarthPorn/">r/EarthPorn</button>
-      <button class="ex" type="button" data-q="https://www.reddit.com/r/interestingasfuck/">r/interestingasfuck</button>
-    </div>
-  </div>
+  <div class="state"><div class="loader" aria-label="Lädt"></div></div>
 </div>
 
 <script>
 (() => {
   'use strict';
 
+  // ---------- Icons (Material Symbols, als SVG eingebettet) ----------
+  const I = {
+    fast_forward: 'M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z',
+    person_remove: 'M14 8c0-2.21-1.79-4-4-4S6 5.79 6 8s1.79 4 4 4 4-1.79 4-4zm3 2v2h6v-2h-6zM2 18v2h16v-2c0-2.66-5.33-4-8-4s-8 1.34-8 4z',
+    search: 'M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+    settings: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z',
+    visibility: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+    visibility_off: 'M12 7a5 5 0 0 1 5 5c0 .65-.13 1.26-.36 1.83l2.92 2.92A11.8 11.8 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16A4.85 4.85 0 0 1 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55A2.82 2.82 0 0 0 9 12a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55A4.97 4.97 0 0 1 7 12c0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16a3 3 0 0 0-3-3l-.17.01z',
+    hide: 'M12 7a5 5 0 0 1 5 5c0 .65-.13 1.26-.36 1.83l2.92 2.92A11.8 11.8 0 0 0 23 12c-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16A4.85 4.85 0 0 1 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55A2.82 2.82 0 0 0 9 12a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55A4.97 4.97 0 0 1 7 12c0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16a3 3 0 0 0-3-3l-.17.01z',
+    bolt: 'M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66.19-.34.05-.08.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51l-.07.15C12.96 17.55 11 21 11 21z',
+    close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+    link: 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4a5 5 0 0 0 0-10z',
+    arrow_forward: 'M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z',
+    home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
+    star: 'M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
+    whatshot: 'M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14a8 8 0 0 0 16 0C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z',
+    new: 'M19 8l-4 4h3a6 6 0 0 1-6 6 5.87 5.87 0 0 1-2.8-.7l-1.46 1.46A7.93 7.93 0 0 0 12 20a8 8 0 0 0 8-8h3l-4-4zM6 12a6 6 0 0 1 6-6c1.01 0 1.97.25 2.8.7l1.46-1.46A7.93 7.93 0 0 0 12 4a8 8 0 0 0-8 8H1l4 4 4-4H6z',
+    trophy: 'M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94A5.01 5.01 0 0 0 11 15.9V19H7v2h10v-2h-4v-3.1a5.01 5.01 0 0 0 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z',
+    trending_up: 'M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z',
+    public: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 17.93A7.99 7.99 0 0 1 4 12c0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54A1.98 1.98 0 0 0 16 16h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41a7.98 7.98 0 0 1 2.9 12.8z',
+    tag: 'M20 10V8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4zm-6 4h-4v-4h4v4z',
+    cake: 'M12 6a2 2 0 0 0 2-2c0-.38-.1-.73-.29-1.03L12 0l-1.71 2.97c-.19.3-.29.65-.29 1.03 0 1.1.9 2 2 2zm4.6 9.99-1.07-1.07-1.08 1.07c-1.3 1.3-3.58 1.31-4.89 0l-1.07-1.07-1.09 1.07A3.45 3.45 0 0 1 4.96 17c-.73 0-1.4-.23-1.96-.61V21c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-4.61c-.56.38-1.23.61-1.96.61-.92 0-1.79-.36-2.44-1.01zM18 9h-5V7h-2v2H6a3 3 0 0 0-3 3v1.54c0 1.08.88 1.96 1.96 1.96.52 0 1.02-.2 1.38-.57l2.14-2.13 2.13 2.13c.74.74 2.03.74 2.77 0l2.14-2.13 2.13 2.13c.37.37.86.57 1.38.57 1.08 0 1.96-.88 1.96-1.96V12a3 3 0 0 0-3-3z',
+    favorite: 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z',
+    restart: 'M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z',
+    memory: 'M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z',
+    layers: 'M11.99 18.54 4.62 12.81 3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z',
+    splitscreen: 'M18 4v5H6V4h12m0-2H6c-1.1 0-2 .9-2 2v5c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 13v5H6v-5h12m0-2H6c-1.1 0-2 .9-2 2v5c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-5c0-1.1-.9-2-2-2z',
+    check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+    add: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+    remove: 'M19 13H5v-2h14v2z',
+    account: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14.2a7.2 7.2 0 0 1-6-3.22c.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08a7.2 7.2 0 0 1-6 3.22z',
+    login: 'M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z',
+    logout: 'm17 7-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z',
+    vpn: 'M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z',
+    file: 'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
+    upload: 'M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z',
+    check_circle: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
+    error: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z',
+    info: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+    thumb_up: 'M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z',
+    thumb_down: 'M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z',
+    person_add: 'M15 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+    person_check: 'M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z',
+    person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+    volume_up: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z',
+    volume_off: 'M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z',
+    play: 'M8 5v14l11-7z',
+    pause: 'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
+    chevron_left: 'M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z',
+    chevron_right: 'M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+    open: 'M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z',
+    target: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm8.94 3A8.99 8.99 0 0 0 13 3.06V1h-2v2.06A8.99 8.99 0 0 0 3.06 11H1v2h2.06A8.99 8.99 0 0 0 11 20.94V23h2v-2.06A8.99 8.99 0 0 0 20.94 13H23v-2h-2.06zM12 19a7 7 0 1 1 0-14 7 7 0 0 1 0 14z',
+    timer: 'M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61 1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42A8.96 8.96 0 0 0 12 4a9 9 0 1 0 9 9c0-2.12-.74-4.07-1.97-5.61zM12 20a7 7 0 1 1 0-14 7 7 0 0 1 0 14z',
+    pose: 'M12 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z',
+    face: 'M9 11.75a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5zm6 0a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5zM12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18c-4.41 0-8-3.59-8-8 0-.29.02-.58.05-.86 2.36-1.05 4.23-2.98 5.21-5.37A9.97 9.97 0 0 0 17.42 10c.86 0 1.69-.1 2.49-.29.23.73.36 1.5.36 2.29 0 4.41-3.59 8-8 8z',
+    image_off: 'M21 5v11.17L7.83 3H19c1.1 0 2 .9 2 2zM2.81 2.81 1.39 4.22 3 5.83V19c0 1.1.9 2 2 2h13.17l1.61 1.61 1.41-1.41L2.81 2.81zM5 18l3-4 2 3 .59-.79L14.17 18H5z',
+    cloud_off: 'M19.35 10.04A7.49 7.49 0 0 0 12 4c-1.48 0-2.85.43-4.01 1.17l1.46 1.46A5.47 5.47 0 0 1 17.5 11.5v.5H19a3 3 0 0 1 1.66 5.5l1.45 1.45A4.98 4.98 0 0 0 19.35 10.04zM3 5.27l2.75 2.74C2.56 8.15 0 10.77 0 14a6 6 0 0 0 6 6h11.73l2 2L21 20.73 4.27 4 3 5.27zM7.73 10l8 8H6c-2.21 0-4-1.79-4-4s1.79-4 4-4h1.73z',
+    sync: 'M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z',
+  };
+  const svg = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${I[n] || I.info}"/></svg>`;
+  function icon(n, cls) { const s = document.createElement('span'); s.className = 'ic' + (cls ? ' ' + cls : ''); s.innerHTML = svg(n); return s; }
+  function setIc(host, n) { const s = host.querySelector('.ic') || host.appendChild(icon(n)); s.innerHTML = svg(n); }
+  document.querySelectorAll('[data-ic]').forEach((s) => { s.innerHTML = svg(s.dataset.ic); });
+
   const $ = (sel) => document.querySelector(sel);
   const form = $('#form');
   const input = $('#q');
-  const sortSel = $('#sort');
-  const timeSel = $('#t');
   const feed = $('#feed');
   const enc = encodeURIComponent;
+  const DEFAULT_Q = 'https://www.reddit.com/user/Brilliant-Nothing684/m/redswipe/';
 
-  // ---- Server-Auslastung (auf jeder Seite) + Anzahl gleichzeitiger Scans ----
-  const loadBadge = $('#loadBadge'), wkN = $('#wkN'), wkState = $('#wkState'), wkParts = $('#wkParts');
+  // Segment-Buttons verhalten sich für den Rest des Codes wie ein <select>
+  function segGroup(root) {
+    const btns = () => [...root.querySelectorAll('button[data-v]')];
+    const api = {
+      get value() { const b = btns().find((x) => x.getAttribute('aria-checked') === 'true'); return b ? b.dataset.v : btns()[0].dataset.v; },
+      set value(v) { btns().forEach((x) => x.setAttribute('aria-checked', x.dataset.v === v ? 'true' : 'false')); },
+      has(v) { return btns().some((x) => x.dataset.v === v); },
+      onChange: null,
+    };
+    root.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-v]');
+      if (!b || b.getAttribute('aria-checked') === 'true') return;
+      api.value = b.dataset.v;
+      if (api.onChange) api.onChange();
+    });
+    return api;
+  }
+  const sortSel = segGroup($('#sort'));
+  const timeSel = segGroup($('#t'));
+  sortSel.value = 'hot'; timeSel.value = 'day';
+  const tWrap = $('#tWrap');
+  const syncTime = () => { tWrap.hidden = sortSel.value !== 'top'; };
+
+  // ---------- Sheets (Quelle, Einstellungen) ----------
+  function openSheet(s) { s.classList.remove('closing'); s.hidden = false; }
+  function closeSheet(s) {
+    if (s.hidden || s.classList.contains('closing')) return;
+    s.classList.add('closing');
+    setTimeout(() => { s.hidden = true; s.classList.remove('closing'); }, 210);
+  }
+  document.querySelectorAll('.sheet').forEach((s) => {
+    s.addEventListener('click', (e) => { if (e.target === s || e.target.closest('[data-close]')) closeSheet(s); });
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.sheet:not([hidden])').forEach(closeSheet); });
+
+  // Plus/Minus an Zahlenfeldern
+  document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+    const f = document.getElementById(b.dataset.for);
+    const lo = +f.min, hi = +f.max;
+    f.value = Math.max(lo, Math.min(hi, (parseInt(f.value, 10) || 0) + +b.dataset.step));
+    f.dispatchEvent(new Event('change', { bubbles: true }));
+  }));
+
+  // ---- Server-Auslastung + Anzahl gleichzeitiger Scans ----
+  // Server-Leistung: nur abfragen, solange die Einstellungen offen sind
+  const wkN = $('#wkN'), wkState = $('#wkState'), wkParts = $('#wkParts');
   let wkInit = false;
   async function loadTick() {
+    const dlg = document.getElementById('vpn');
+    if (!dlg || dlg.hidden) return;
     try {
       const r = await fetch('/api/scan/status');
       const d = await r.json();
-      if (!r.ok || d.off) { loadBadge.hidden = true; return; }
+      if (!r.ok || d.off) { wkState.textContent = 'Scanner ist nicht eingerichtet.'; return; }
       const pct = Math.round((d.load / d.cpus) * 100);
-      loadBadge.hidden = false;
-      loadBadge.classList.toggle('busy', d.running > 0 || d.queued > 0);
-      loadBadge.textContent = `Scan ${d.running}/${d.workers} aktiv · ${d.queued} wartend · CPU ${pct}%`;
-      wkState.textContent = `Aktuell ${d.workers} gleichzeitig, ${d.parts || 1} Teile pro Video, ${d.running} laufen, ${d.queued} warten. Server-Last ${d.load.toFixed(2)} bei ${d.cpus} Kernen (${pct}%).`;
-      if (!wkInit || document.activeElement !== wkN) { if (!wkInit) { wkN.value = d.workers; wkParts.value = String(d.parts || 1); } wkInit = true; }
-    } catch { loadBadge.hidden = true; }
+      $('#cpuPct').textContent = pct + ' %';
+      const m = $('#cpuMeter');
+      m.className = 'meter' + (pct >= 90 ? ' hi' : pct >= 60 ? ' mid' : '');
+      m.firstElementChild.style.width = Math.min(100, pct) + '%';
+      wkState.textContent = `Last ${d.load.toFixed(1).replace('.', ',')} bei ${d.cpus} Kernen` + (pct > 100 ? '. Überlastet, weniger gleichzeitig wäre schneller pro Beitrag.' : '.');
+      const tiles = el('div', 'stats');
+      [[d.running, 'laufen'], [d.queued, 'warten'], [`${d.workers}×${d.parts || 1}`, 'gleichz. × Teile']].forEach(([v, t]) => {
+        const x = el('div', 'stat'); x.append(el('b', '', String(v)), el('span', '', t)); tiles.appendChild(x);
+      });
+      $('#wkTiles').replaceChildren(tiles);
+      if (!wkInit) { wkN.value = d.workers; wkParts.value = String(d.parts || 1); wkInit = true; }
+      poolRefresh();
+    } catch { wkState.textContent = 'Status nicht erreichbar.'; }
   }
-  loadTick(); setInterval(loadTick, 3000);
+  setInterval(loadTick, 3000);
   $('#wkSave').addEventListener('click', async () => {
     const n = Math.max(1, Math.min(12, parseInt(wkN.value, 10) || 2));
     wkN.value = n;
@@ -284,17 +715,23 @@
       const hd = { 'Content-Type': 'application/json' };
       await fetch('/api/scan/workers', { method: 'POST', headers: hd, body: JSON.stringify({ n }) });
       await fetch('/api/scan/parts', { method: 'POST', headers: hd, body: JSON.stringify({ n: Math.max(1, Math.min(16, parseInt(wkParts.value, 10) || 1)) }) });
-      toast(`${n} Medien gleichzeitig, Videos in ${wkParts.value} Teilen`);
-    } catch { toast('Speichern fehlgeschlagen'); }
+      toast(`${n} Medien gleichzeitig, Videos in ${wkParts.value} Teilen`, 'check_circle');
+    } catch { toast('Speichern fehlgeschlagen', 'error'); }
     loadTick();
   });
 
-  // ---- VPN-Dialog: Config hochladen (Server prüft Format und Keys) ----
+  // ---- VPN: Config hochladen (Server prüft Format und Keys) ----
   const vpn = $('#vpn'), vpnState = $('#vpnState'), vpnMsg = $('#vpnMsg');
   const vpnFile = $('#vpnFile'), vpnSend = $('#vpnSend');
   const vpnHeaders = { 'X-Redswipe': '1' };
 
-  function setMsg(el, text, cls) { el.textContent = text; el.className = cls || ''; }
+  function setMsg(node, text, cls) {
+    node.className = 'status' + (cls ? ' ' + cls : '');
+    node.replaceChildren();
+    if (!text) return;
+    if (cls) node.appendChild(icon(cls === 'ok' ? 'check_circle' : 'error', 's'));
+    node.appendChild(el('span', '', text));
+  }
 
   async function vpnRefresh() {
     setMsg(vpnState, 'Status wird geladen …');
@@ -329,10 +766,18 @@
   $('#rdSave').addEventListener('click', () => rdCall('POST', rdCookie.value));
   $('#rdOut').addEventListener('click', () => rdCall('DELETE'));
 
-  $('#vpnBtn').addEventListener('click', () => { vpn.hidden = false; setMsg(vpnMsg, ''); setMsg(rdMsg, ''); vpnRefresh(); rdRefresh(); });
-  $('#vpnClose').addEventListener('click', () => { vpn.hidden = true; });
-  vpn.addEventListener('click', (e) => { if (e.target === vpn) vpn.hidden = true; });
-  vpnFile.addEventListener('change', () => { vpnSend.disabled = !vpnFile.files.length; setMsg(vpnMsg, ''); });
+  function openSettings(focusEl) {
+    openSheet(vpn); setMsg(vpnMsg, ''); setMsg(rdMsg, ''); vpnRefresh(); rdRefresh(); tasteRefresh(); loadTick(); poolRefresh(); rgLoad();
+    syncAgeForm();
+    if (focusEl) setTimeout(() => focusEl.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
+  }
+  $('#setBtn').addEventListener('click', () => openSettings());
+  $('#vpnClose').addEventListener('click', () => closeSheet(vpn));
+  $('#vpnPick').addEventListener('click', () => vpnFile.click());
+  vpnFile.addEventListener('change', () => {
+    vpnSend.disabled = !vpnFile.files.length; setMsg(vpnMsg, '');
+    $('#vpnName').textContent = vpnFile.files.length ? vpnFile.files[0].name : '';
+  });
 
   vpnSend.addEventListener('click', async () => {
     const f = vpnFile.files[0];
@@ -346,7 +791,7 @@
       if (!r.ok) { setMsg(vpnMsg, d.error || 'Upload fehlgeschlagen.', 'bad'); }
       else {
         setMsg(vpnMsg, d.message, 'ok');
-        vpnFile.value = '';
+        vpnFile.value = ''; $('#vpnName').textContent = '';
         setTimeout(vpnRefresh, 15000); // Verbindung braucht einen Moment
       }
     } catch (e) { setMsg(vpnMsg, 'Server nicht erreichbar.', 'bad'); }
@@ -367,6 +812,43 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* ignorieren */ } },
   };
 
+  // ---------- Modus: "pool" = gescannt, für dich (Standard), "live" = direkt von Reddit ----------
+  let mode = store.get('rs-mode') === 'live' ? 'live' : 'pool';
+  const modeSel = segGroup($('#mode'));
+  modeSel.value = mode;
+  const modeToggleBtn = $('#modeToggleBtn');
+  function updateModeBtn() {
+    if (!modeToggleBtn) return;
+    const isPool = mode === 'pool';
+    setIc(modeToggleBtn, isPool ? 'public' : 'favorite');
+    modeToggleBtn.title = isPool ? 'Zur Live-Vorschau wechseln' : 'Zum Gescannt-Modus wechseln';
+    modeToggleBtn.setAttribute('aria-label', modeToggleBtn.title);
+  }
+  function syncMode() {
+    modeSel.value = mode;
+    store.set('rs-mode', mode);
+    $('#liveOpts').hidden = mode !== 'live';
+    $('#modeHelp').textContent = mode === 'pool'
+      ? 'Mischt hot, neu, rising und top der Quelle. Es kommen nur fertig gescannte Beiträge, die du noch nicht gesehen hast, die besten für dich zuerst.'
+      : 'Zeigt die Quelle direkt in der gewählten Sortierung. Schon gesehene Beiträge werden übersprungen.';
+    updateModeBtn();
+    if (typeof updateSrcBtn === 'function') updateSrcBtn();
+  }
+  modeToggleBtn.addEventListener('click', () => {
+    mode = mode === 'pool' ? 'live' : 'pool';
+    syncMode();
+    const introEl = $('#intro');
+    if (introEl && !introEl.hidden) {
+      if (typeof introTimer !== 'undefined') clearTimeout(introTimer);
+      introEl.classList.add('out');
+      setTimeout(() => { introEl.hidden = true; }, 320);
+    }
+    goFullscreen();
+    load();
+  });
+  modeSel.onChange = () => { mode = modeSel.value; syncMode(); load(); };
+  syncMode();
+
   // ---------- Hilfsfunktionen ----------
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -384,25 +866,31 @@
     feed.querySelectorAll('.state').forEach((n) => n.remove());
   }
 
-  function showError(msg, my) {
+  function stateBox(ic, msg, err) {
     const box = el('div', 'state');
-    box.appendChild(el('p', 'err', msg));
-    const btn = el('button', '', 'Nochmal versuchen');
+    const b = el('div', 'bigic' + (err ? ' err' : ''));
+    b.innerHTML = svg(ic);
+    box.append(b, el('p', '', msg));
+    return box;
+  }
+  function stateBtn(box, ic, text, fn) {
+    const btn = el('button', 'btn tonal');
     btn.type = 'button';
-    btn.addEventListener('click', () => { if (my === token) { box.remove(); runLoad(token); } });
+    btn.append(icon(ic), document.createTextNode(text));
+    btn.addEventListener('click', fn);
     box.appendChild(btn);
+  }
+
+  function showError(msg, my) {
+    const box = stateBox('cloud_off', msg, true);
+    stateBtn(box, 'sync', 'Nochmal versuchen', () => { if (my === token) { box.remove(); runLoad(token); } });
     addState(box);
   }
 
   function showEmpty(withMore) {
-    const box = el('div', 'state');
-    box.appendChild(el('p', '', 'Auf dieser Seite gibt es keine Bilder oder Videos.'));
-    if (withMore && after) {
-      const btn = el('button', '', 'Weiter laden');
-      btn.type = 'button';
-      btn.addEventListener('click', () => { box.remove(); runLoad(token); });
-      box.appendChild(btn);
-    }
+    const box = stateBox('image_off', 'Auf dieser Seite gibt es keine Bilder oder Videos.');
+    if (withMore && after) stateBtn(box, 'sync', 'Weiter laden', () => { box.remove(); runLoad(token); });
+    else stateBtn(box, 'search', 'Andere Quelle', () => openSheet(srcSheet));
     addState(box);
   }
 
@@ -413,8 +901,6 @@
     const slide = car.children[activeIndex(car)];
     return slide ? slide.querySelector('video') : null;
   }
-
-  function fmt(n) { return Number(n || 0).toLocaleString('de-DE'); }
 
   // ---------- Audio (Reddit-Videos haben den Ton in einer eigenen Datei) ----------
   function ensureAudio(v) {
@@ -460,7 +946,7 @@
       const v = activeVideo(sec);
       if (soundOn && v && v._rs.audio && !v.paused) v._rs.audio.play().catch(() => {});
     });
-    document.querySelectorAll('.sound').forEach((b) => { b.textContent = soundOn ? '🔊' : '🔇'; });
+    document.querySelectorAll('.sound').forEach((b) => { setIc(b, soundOn ? 'volume_up' : 'volume_off'); b.classList.toggle('on', soundOn); });
   }
 
   function updateSoundBtn(sec) {
@@ -470,23 +956,44 @@
     if (!v) { btn.hidden = true; return; }
     const st = v._rs;
     btn.hidden = st.cands.length > 0 && st.noAudio;
-    btn.textContent = soundOn ? '🔊' : '🔇';
+    setIc(btn, soundOn ? 'volume_up' : 'volume_off');
+    btn.classList.toggle('on', soundOn);
   }
 
   function updatePreload(sec) {
-    const next = sec.nextElementSibling;
+    if (!sec) return;
+    const ahead = [];
+    let cur = sec;
+    for (let i = 0; i < 4 && cur; i++) {
+      ahead.push(cur);
+      cur = cur.nextElementSibling;
+    }
+    const prev = sec.previousElementSibling;
+    if (prev) ahead.push(prev);
+
     feed.querySelectorAll('.post').forEach((p) => {
-      const mode = (p === sec || p === next) ? 'auto' : 'none';
-      p.querySelectorAll('video').forEach((v) => { v.preload = mode; });
+      const isAhead = ahead.includes(p);
+      p.querySelectorAll('video').forEach((v) => {
+        if (isAhead) {
+          if (v.preload !== 'auto') v.preload = 'auto';
+          if (v.readyState < 2 && !v._preloadStarted && v.src) {
+            v._preloadStarted = true;
+            try { v.load(); } catch {}
+          }
+          if (v._rs && v._rs.cands && v._rs.cands.length > 0 && !v._rs.audio && !v._rs.noAudio) {
+            ensureAudio(v);
+          }
+        } else {
+          v.preload = 'none';
+        }
+      });
     });
   }
 
-  // ---------- Sichtbarkeit: Video-Logik ----------
-
-  // ---------- NudeNet-Ergebnisse ----------
-  // Der Server scannt alles schon im Hintergrund; hier wird nur abgeholt und angezeigt, wenn "Anzeigen" an ist.
+  // ---------- Scan-Ergebnisse ----------
+  // Der Server scannt alles schon im Hintergrund; hier wird nur abgeholt und angezeigt, wenn das Overlay an ist.
   const SCAN_KEY = 'redswipe_scan_show';
-  const scanBtn = $('#scanBtn');
+  const scanSw = $('#scanSw');
   let scanOn = false;
   try { scanOn = localStorage.getItem(SCAN_KEY) === '1'; } catch {}
   const LABELS = {
@@ -502,20 +1009,26 @@
   const pct = (x) => Math.round(x * 100) + ' %';
   const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
+  // Chip mit Icon; der Text steckt in .t, damit er später ersetzt werden kann
+  function chip(cls, ic, text) {
+    const c = el('span', 'chip' + (cls ? ' ' + cls : ''));
+    if (ic) c.appendChild(icon(ic, 'xs'));
+    c.appendChild(el('span', 't', text));
+    return c;
+  }
+
   function setScanOn(on) {
     scanOn = on;
     try { localStorage.setItem(SCAN_KEY, on ? '1' : '0'); } catch {}
-    scanBtn.classList.toggle('on', on);
-    scanBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    scanSw.checked = on;
     document.body.classList.toggle('scan-on', on);
-      }
-  scanBtn.addEventListener('click', () => setScanOn(!scanOn));
+  }
+  scanSw.addEventListener('change', () => setScanOn(scanSw.checked));
 
-  // ---------- Alters-Filter: Beiträge mit zu jungen/alten Personen ausblenden ----------
+  // ---------- Alters-Filter: Beiträge mit zu jungen/alten Personen markieren oder ausblenden ----------
   // Das Alter ist nur geschätzt (Fehler ca. ±5-8 Jahre), deshalb zählt jede einzelne Schätzung außerhalb des Bereichs.
   // Ohne erkanntes Gesicht gibt es keine Schätzung, solche Beiträge bleiben sichtbar.
   const AGE_KEY = 'redswipe_age';
-  const ageBtn = $('#ageBtn');
   let ageCfg = { on: false, min: 18, max: 30, hide: false };
   try { Object.assign(ageCfg, JSON.parse(localStorage.getItem(AGE_KEY) || '{}')); } catch {}
   const agesOf = (r) => {
@@ -538,24 +1051,22 @@
   }
   function setAge() {
     try { localStorage.setItem(AGE_KEY, JSON.stringify(ageCfg)); } catch {}
-    ageBtn.classList.toggle('on', ageCfg.on);
-    ageBtn.textContent = ageCfg.on ? `Alter ${ageCfg.min}–${ageCfg.max}` : 'Alter';
     document.querySelectorAll('.chip[data-age]').forEach((c) => c.classList.toggle('agebad', ageOut(+c.dataset.age)));
     document.querySelectorAll('.post').forEach(applyAgeFilter);
   }
-  const ageDlg = $('#ageDlg'), ageOnEl = $('#ageOn'), ageMinEl = $('#ageMin'), ageMaxEl = $('#ageMax'), ageHideEl = $('#ageHide');
-  ageBtn.addEventListener('click', () => {
+  const ageOnEl = $('#ageOn'), ageMinEl = $('#ageMin'), ageMaxEl = $('#ageMax'), ageHideEl = $('#ageHide'), ageRange = $('#ageRange');
+  function syncAgeForm() {
     ageOnEl.checked = ageCfg.on; ageMinEl.value = ageCfg.min; ageMaxEl.value = ageCfg.max; ageHideEl.checked = !!ageCfg.hide;
-    ageDlg.hidden = false;
-  });
-  $('#ageCancel').addEventListener('click', () => { ageDlg.hidden = true; });
-  $('#ageSave').addEventListener('click', () => {
+    ageRange.style.opacity = ageCfg.on ? '1' : '.5';
+  }
+  // Änderungen gelten sofort, ohne Speichern-Knopf
+  [ageOnEl, ageMinEl, ageMaxEl, ageHideEl].forEach((n) => n.addEventListener('change', () => {
     let mn = parseInt(ageMinEl.value, 10), mx = parseInt(ageMaxEl.value, 10);
     if (!(mn >= 0)) mn = 18; if (!(mx >= 0)) mx = 99;
     if (mn > mx) [mn, mx] = [mx, mn];
     ageCfg = { on: ageOnEl.checked, min: mn, max: mx, hide: ageHideEl.checked };
-    ageDlg.hidden = true; setAge();
-  });
+    syncAgeForm(); setAge();
+  }));
   setAge();
 
   // Der Rahmen soll genau auf dem sichtbaren Bild liegen (object-fit: contain).
@@ -659,18 +1170,24 @@
   }
 
   function appChip(a, i) {
-      const c = el('span', 'chip pose' + (a && ageOut(a.age) ? ' agebad' : ''));
-      if (a && a.age != null) c.dataset.age = a.age;
-      const part = (txt, rgb) => { if (!txt) return; if (rgb) { const sw = el('i', 'sw'); sw.style.background = `rgb(${rgb.join(',')})`; c.appendChild(sw); } c.appendChild(document.createTextNode(txt + ' ')); };
-      if (a) {
+    const c = el('span', 'chip pose' + (a && ageOut(a.age) ? ' agebad' : ''));
+    if (a && a.age != null) c.dataset.age = a.age;
+    const part = (txt, rgb) => { if (!txt) return; if (rgb) { const sw = el('i', 'sw'); sw.style.background = `rgb(${rgb.join(',')})`; c.appendChild(sw); } c.appendChild(document.createTextNode(txt + ' ')); };
+    if (a) {
       part(a.age != null && 'Alter ~' + a.age, null);
       part(a.hair && 'Haar ' + a.hair, a.hair_rgb);
       part(a.skin && 'Haut ' + a.skin, a.skin_rgb);
+      if (a.bra) part(`BH ca. ${a.bra.size}` + (a.bra.conf === 'niedrig' ? ' (grob)' : ''), null);
+      if (a.bra && a.bra.sag_label) part(`Brust: ${a.bra.sag_label}`, null);
+      if (a.shape) part(`Körper: ${a.shape.label}` + (a.shape.conf === 'niedrig' ? ' (grob)' : ''), null);
       if (a.skin_body && a.skin_face && a.skin_body !== a.skin_face) part(`(Gesicht ${a.skin_face}, Körper ${a.skin_body})`, null);
       else if (a.skin_body && !a.skin_face) part('(nur Körper)', null);
     }
-      return c.childNodes.length ? (c.insertBefore(document.createTextNode(`P${i + 1}: `), c.firstChild), c) : null;
-    }
+    if (!c.childNodes.length) return null;
+    c.insertBefore(document.createTextNode(`P${i + 1} `), c.firstChild);
+    c.insertBefore(icon('face', 'xs'), c.firstChild);
+    return c;
+  }
 
   function renderScan(slide, m, r) {
     slide.querySelectorAll('.scanbox, .scaninfo').forEach((n) => n.remove());
@@ -694,38 +1211,38 @@
       new ResizeObserver(refit).observe(slide);
     }
     const pn = (n) => `${n} ${n === 1 ? 'Person' : 'Personen'}`;
-    if (m.type === 'image' && r.persons != null) info.appendChild(el('span', 'chip pose', `👤 ${pn(r.persons)} erkannt`));
+    if (m.type === 'image' && r.persons != null) info.appendChild(chip('pose', 'person', `${pn(r.persons)} erkannt`));
     else if (m.type === 'video' && r.persons_max != null) {
-      const ch = el('span', 'chip pose', `👤 max ${pn(r.persons_max)}`);
+      const ch = chip('pose', 'person', `max ${pn(r.persons_max)}`);
       ch.dataset.persons = '1'; info.appendChild(ch); info._pc = ch;
     }
-    if (m.type === 'image' && poses.length) info.appendChild(el('span', 'chip pose', `Pose: ${pn(poses.length)}`));
-    else if (m.type === 'video' && r.pose_frames) info.appendChild(el('span', 'chip pose', `Pose in ${pct(r.pose_frames / r.frames)} der Frames`));
+    if (m.type === 'image' && poses.length) info.appendChild(chip('pose', 'pose', `Pose: ${pn(poses.length)}`));
+    else if (m.type === 'video' && r.pose_frames) info.appendChild(chip('pose', 'pose', `Pose in ${pct(r.pose_frames / r.frames)} der Frames`));
     if (m.type === 'image') (r.appearance || []).forEach((a, i) => { const c = appChip(a, i); if (c) info.appendChild(c); });
     else if (m.type === 'video' && (r.appearance_timeline || []).length) { const box = el('span', ''); box.dataset.appearance = '1'; box.style.display = 'contents'; info.appendChild(box); }
     let nipCount = 0;
     nipples.forEach((p) => { if (p.left) nipCount++; if (p.right) nipCount++; });
-    if (nipCount) info.appendChild(el('span', 'chip hit', `🎯 ${nipCount} Brustwarze(n)`));
+    if (nipCount) info.appendChild(chip('hit', 'target', `${nipCount} Brustwarze(n)`));
     if (!dets.length) {
-      info.appendChild(el('span', 'chip', m.type === 'video' ? `Nichts erkannt (${r.frames} Frames geprüft)` : 'Nichts erkannt'));
+      info.appendChild(chip('', 'info', m.type === 'video' ? `Nichts erkannt (${r.frames} Frames geprüft)` : 'Nichts erkannt'));
     } else if (m.type === 'video') {
-      info.appendChild(el('span', 'chip', `${r.frames} Frames geprüft`));
-      dets.forEach((d) => info.appendChild(el('span', 'chip ' + (isCovered(d.label) ? 'cov' : 'hit'),
+      info.appendChild(chip('', 'layers', `${r.frames} Frames geprüft`));
+      dets.forEach((d) => info.appendChild(chip(isCovered(d.label) ? 'cov' : 'hit', null,
         `${labelName(d.label)} · max ${pct(d.score)} · ${pct(d.share)} der Frames · ${mmss(d.first)}–${mmss(d.last)}`)));
     } else {
-      dets.forEach((d) => info.appendChild(el('span', 'chip ' + (isCovered(d.label) ? 'cov' : 'hit'), `${labelName(d.label)} ${pct(d.score)}`)));
+      dets.forEach((d) => info.appendChild(chip(isCovered(d.label) ? 'cov' : 'hit', null, `${labelName(d.label)} ${pct(d.score)}`)));
     }
     if (r.took != null) {
       const t = r.took >= 60 ? `${Math.floor(r.took / 60)} min ${Math.round(r.took % 60)} s` : `${String(r.took).replace('.', ',')} s`;
-      info.appendChild(el('span', 'chip', `⏱ Scan ${t}` + (m.type === 'video' && r.parts > 1 ? ` (${r.parts} Teile)` : '')));
+      info.appendChild(chip('', 'timer', `Scan ${t}` + (m.type === 'video' && r.parts > 1 ? ` (${r.parts} Teile)` : '')));
     }
     slide.appendChild(info);
   }
 
-  function renderPending(slide, text) {
+  function renderPending(slide, text, ic) {
     slide.querySelectorAll('.scaninfo').forEach((n) => n.remove());
     const info = el('div', 'scaninfo');
-    info.appendChild(el('span', 'chip', text));
+    info.appendChild(chip('', ic || 'sync', text));
     slide.appendChild(info);
   }
 
@@ -760,17 +1277,17 @@
           boxes.appendChild(b);
         });
       }
-      const chip = slide.querySelector('.chip[data-persons]');
-      if (chip && prt.length) {
+      const pchip = slide.querySelector('.chip[data-persons]');
+      if (pchip && prt.length) {
         const q = findFrame(prt, t, 1e9), n = q >= 0 ? prt[q][1] : 0;
-        if (n !== pcount) { pcount = n; chip.textContent = `👤 ${n} ${n === 1 ? 'Person' : 'Personen'} (max ${r.persons_max})`; }
+        if (n !== pcount) { pcount = n; pchip.querySelector('.t').textContent = `${n} ${n === 1 ? 'Person' : 'Personen'} (max ${r.persons_max})`; }
       }
       const abox = slide.querySelector('[data-appearance]'), atl = r.appearance_timeline || [];
       if (abox && atl.length) {
         const q = findFrame(atl, t, 1.5);
         if (q !== ashown) {
           ashown = q; abox.textContent = '';
-          if (q >= 0) atl[q][1].forEach((a, i) => { const c = appChip(a, i); if (c) abox.appendChild(c); });
+          if (q >= 0) atl[q][1].forEach((a, k) => { const c = appChip(a, k); if (c) abox.appendChild(c); });
         }
       }
       if (pc) {
@@ -793,7 +1310,7 @@
     v.addEventListener('seeked', () => { shown = pshown = hshown = -2; });
   }
 
-  // Ergebnis für ein Medium holen (läuft immer, auch bei ausgeschaltetem Knopf); p = Abstand zum sichtbaren Beitrag.
+  // Ergebnis für ein Medium holen (läuft immer, auch bei ausgeschaltetem Overlay); p = Abstand zum sichtbaren Beitrag.
   async function scanSlide(slide, m, p) {
     if (!m.src || (m.type !== 'image' && m.type !== 'video') || slide._scanDone) return;
     slide._scanP = Math.min(slide._scanP ?? 99, p);
@@ -808,22 +1325,22 @@
           const res = await fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}&p=${slide._scanP}`);
           if (!res.ok) throw new Error('HTTP ' + res.status);
           r = await res.json();
-        } catch { renderPending(slide, 'Scan nicht abrufbar'); await new Promise((ok) => setTimeout(ok, 5000)); continue; }
+        } catch { renderPending(slide, 'Scan nicht abrufbar', 'cloud_off'); await new Promise((ok) => setTimeout(ok, 5000)); continue; }
         if (r.status === 'done') {
           slide._scanDone = true; renderScan(slide, m, r);
           slide._ages = agesOf(r); applyAgeFilter(slide.closest('.post'));
           if (m.type === 'video') attachVideoBoxes(slide, r);
           return;
         }
-        if (r.status === 'failed') { slide._scanDone = true; renderPending(slide, 'Scan fehlgeschlagen'); return; }
-        if (r.status === 'off') { slide._scanDone = true; renderPending(slide, 'Scanner ist nicht eingerichtet'); return; }
+        if (r.status === 'failed') { slide._scanDone = true; renderPending(slide, 'Scan fehlgeschlagen', 'error'); return; }
+        if (r.status === 'off') { slide._scanDone = true; renderPending(slide, 'Scanner ist nicht eingerichtet', 'error'); return; }
         renderPending(slide, 'Scan läuft …');
         await new Promise((ok) => setTimeout(ok, m.type === 'video' ? 3000 : 1000));
       }
     } finally { slide._scanBusy = false; }
   }
 
-  // "Scannen": den sichtbaren Beitrag sofort scannen, vor allem anderen; Ergebnisse werden gleich angezeigt.
+  // "Jetzt scannen": den sichtbaren Beitrag sofort scannen, vor allem anderen; Ergebnisse werden gleich angezeigt.
   const nowBtn = $('#nowBtn');
   nowBtn.addEventListener('click', async () => {
     const sec = [...document.querySelectorAll('.post')].find((x) => x.dataset.visible === '1');
@@ -834,6 +1351,7 @@
     });
     if (!scanOn) setScanOn(true);
     if (!slides.length) return;
+    closeSheet(vpn);
     nowBtn.disabled = true;
     try {
       await Promise.all(slides.map((sl) => {
@@ -843,7 +1361,7 @@
         return fetch(`/api/scan?k=${m.type}&url=${encodeURIComponent(m.src)}&p=0&now=1`).catch(() => {});
       }));
       scanPost(sec, 0);
-      toast('Scan gestartet');
+      toast('Scan gestartet', 'bolt');
     } finally { nowBtn.disabled = false; }
   });
 
@@ -864,21 +1382,33 @@
     scanWin.forEach((x) => (x._media || []).forEach((m) => { if (m.src && (m.type === 'image' || m.type === 'video')) items.push([m.type, m.src]); }));
     fetch('/api/scan/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) }).catch(() => {});
     let p = 0;
-    scanWin.forEach((x) => { scanPost(x, p++); });
+    scanWin.forEach((x) => { scanPost(x, p++); refreshScore(x); });
   }
 
   function onVisible(sec) {
     sec.dataset.visible = '1';
+    const introEl = $('#intro');
+    const introActive = introEl && !introEl.hidden;
+    // Einmal im Bild = gesehen, wird nie wieder vorgeschlagen (erst wenn der Startbildschirm weg ist)
+    if (!introActive && sec._post && !sec._seenSent) {
+      sec._seenSent = true;
+      fetch('/api/pool/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sec._post.id }) }).catch(() => {});
+    }
+    sec._since = Date.now();
     scanAhead(sec);
+    refreshScore(sec);
     sec.querySelectorAll('iframe[data-src]').forEach((f) => { if (!f.src) f.src = f.dataset.src; });
     updatePreload(sec);
-    const v = activeVideo(sec);
-    if (v) playVideo(v);
+    if (!introActive) {
+      const v = activeVideo(sec);
+      if (v) playVideo(v);
+    }
     updateSoundBtn(sec);
   }
 
   function onHidden(sec) {
     sec.dataset.visible = '0';
+    sendView(sec);
     sec.querySelectorAll('video').forEach((v) => {
       v.pause();
       v.currentTime = 0;
@@ -898,6 +1428,154 @@
     }, { root: feed, threshold: 0.6 });
   }
 
+  // ---------- Geschmack: Bewertung 0-100 % und Lernen ----------
+  const postInfo = (p) => ({ id: p.id, title: p.title || '', subreddit: p.subreddit || '', author: p.author || '', flair: p.flair || '', text: p.text || '',
+    media: (p.media || []).map((m) => ({ type: m.type, src: m.src || '' })) });
+  const tasteFetch = (path, body) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  function renderMatch(sec, r) {
+    const b = sec._match;
+    if (!b || !r) return;
+    b.className = 'match glass ' + (r.pct >= 75 ? 'hi' : r.pct >= 50 ? 'mid' : 'lo') + (r.ready ? '' : ' soft');
+    const row = el('span', 'row');
+    const ring = el('span', 'ring');
+    ring.style.setProperty('--v', r.pct);
+    const num = el('span', 'num', r.pct + ' %');
+    if (!r.ready) num.appendChild(el('small', '', 'vorläufig'));
+    row.append(ring, num);
+    b.replaceChildren(row);
+    b.title = r.ready ? 'Passt zu dir. Tippen für Gründe' : 'Vorläufig, der Scan läuft noch';
+    if (sec._whyOpen && r.why && r.why.length) {
+      const ul = el('ul');
+      r.why.forEach((w) => {
+        const li = el('li', w.up ? 'up' : 'down');
+        li.append(icon(w.up ? 'add' : 'remove', 'xs'), el('span', '', niceTag(w.t)));
+        ul.appendChild(li);
+      });
+      b.appendChild(ul);
+    }
+    sec._lastMatch = r;
+  }
+
+  async function refreshScore(sec, force) {
+    if (!sec._post || sec._scoreBusy || (sec._scoreReady && !force)) return;
+    sec._scoreBusy = true;
+    try {
+      for (let i = 0; i < 60 && sec.isConnected; i++) {
+        let r = null;
+        try {
+          const res = await tasteFetch('/api/taste/score', { posts: [postInfo(sec._post)] });
+          if (res.ok) r = ((await res.json()).scores || [])[0];
+        } catch { /* später nochmal */ }
+        if (r) { renderMatch(sec, r); if (r.ready) { sec._scoreReady = true; return; } }
+        // Nur weiter warten, solange der Beitrag sichtbar oder in den nächsten 3 ist
+        if (sec.dataset.visible !== '1' && !scanWin.has(sec)) return;
+        await new Promise((ok) => setTimeout(ok, 4000));
+      }
+    } finally { sec._scoreBusy = false; }
+  }
+
+  function dwellOf(sec) { return (sec._dwell || 0) + (sec._since ? Date.now() - sec._since : 0); }
+
+  function sendVote(sec, vote) {
+    sec._voted = true;
+    tasteFetch('/api/taste/event', { post: postInfo(sec._post), kind: 'vote', vote, dwell_ms: dwellOf(sec) }).catch(() => {});
+    setTimeout(() => refreshScore(sec, true), 400);
+  }
+
+  function sendView(sec) {
+    if (sec._since) { sec._dwell = (sec._dwell || 0) + Date.now() - sec._since; sec._since = 0; }
+    const d = sec._dwell || 0;
+    if (sec._voted || !sec._post || d < 400) return;
+    const v = activeVideo(sec);
+    const media_ms = v && isFinite(v.duration) ? v.duration * 1000 : 0;
+    sec._dwell = 0;
+    tasteFetch('/api/taste/event', { post: postInfo(sec._post), kind: 'view', dwell_ms: d, media_ms }).catch(() => {});
+  }
+
+  // Scanner-Namen wie "male genitalia exposed" auf Deutsch anzeigen
+  const niceTag = (t) => { const k = Object.keys(LABELS).find((x) => x.toLowerCase().replace(/_/g, ' ') === String(t).toLowerCase()); return k ? LABELS[k] : t; };
+  const tasteState = $('#tasteState');
+  async function tasteRefresh() {
+    try {
+      const d = await (await fetch('/api/taste')).json();
+      const stats = el('div', 'stats');
+      [[d.n, 'Ereignisse'], [d.likes, 'positiv'], [d.dislikes, 'negativ']].forEach(([v, t]) => {
+        const s = el('div', 'stat'); s.append(el('b', '', String(v ?? 0)), el('span', '', t)); stats.appendChild(s);
+      });
+      const tags = (list, neg) => {
+        const box = el('div', 'tags' + (neg ? ' neg' : ''));
+        (list || []).slice(0, 8).forEach((x) => box.appendChild(el('span', 'tag', niceTag(x.t))));
+        if (!box.childNodes.length) box.appendChild(el('span', 'help', 'Noch nichts'));
+        return box;
+      };
+      const l1 = el('div', 'lbl2'); l1.append(icon('thumb_up', 'xs'), document.createTextNode('Mag'));
+      const l2 = el('div', 'lbl2'); l2.append(icon('thumb_down', 'xs'), document.createTextNode('Mag nicht'));
+      const wrap = el('div');
+      wrap.append(stats, l1, tags(d.top), l2, tags(d.low, true));
+      tasteState.className = '';
+      tasteState.replaceChildren(wrap);
+    } catch { setMsg(tasteState, 'Nicht abrufbar.', 'bad'); }
+  }
+  // ---------- Vorrat (Gescannt-Modus) ----------
+  function statTiles(d) {
+    const stats = el('div', 'stats');
+    [[d.ready, 'fertig gescannt'], [d.scanning, 'im Scan'], [d.seen, 'gesehen']].forEach(([v, t]) => {
+      const s = el('div', 'stat'); s.append(el('b', '', String(v ?? 0)), el('span', '', t)); stats.appendChild(s);
+    });
+    return stats;
+  }
+  function poolNote(d) {
+    const n = el('div', 'status note');
+    if (d.fetching) { n.append(el('span', 'loader sm'), el('span', '', 'Lädt gerade neue Beiträge von Reddit')); return n; }
+    if (d.scanning > 0) { n.append(el('span', 'loader sm'), el('span', '', `Scannt im Hintergrund, ${d.scanning} Beiträge in Arbeit`)); return n; }
+    const ago = d.last_fetch ? Math.max(0, Math.round((Date.now() / 1000 - d.last_fetch) / 60)) : null;
+    n.append(icon('check_circle', 's'), el('span', '', ago == null ? 'Wartet auf den ersten Durchlauf' : `Zuletzt nachgeladen vor ${ago} min`));
+    return n;
+  }
+  const poolState = $('#poolState');
+  // RedGIFs-Nischen
+  let rgDefaults = [];
+  async function rgLoad() {
+    try {
+      const d = await (await fetch('/api/pool/redgifs')).json();
+      $('#rgOn').checked = !!d.on;
+      if (document.activeElement !== $('#rgNiches')) $('#rgNiches').value = (d.niches || []).join(', ');
+      rgDefaults = d.defaults || [];
+    } catch { /* später */ }
+  }
+  async function rgSave() {
+    try {
+      const r = await fetch('/api/pool/redgifs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on: $('#rgOn').checked, niches: $('#rgNiches').value }) });
+      const d = await r.json();
+      $('#rgNiches').value = (d.niches || []).join(', ');
+      toast(d.on ? `${(d.niches || []).length} Nischen werden gemischt` : 'RedGIFs aus', 'check_circle');
+    } catch { toast('Speichern fehlgeschlagen', 'error'); }
+  }
+  $('#rgOn').addEventListener('change', rgSave);
+  $('#rgSave').addEventListener('click', rgSave);
+  $('#rgDefault').addEventListener('click', () => { $('#rgNiches').value = rgDefaults.join(', '); rgSave(); });
+  async function poolRefresh() {
+    try {
+      const d = await (await fetch('/api/pool/stats')).json();
+      const wrap = el('div');
+      wrap.append(statTiles(d), poolNote(d));
+      if (d.ready_rg) wrap.appendChild(el('p', 'help', `Davon ${d.ready_rg} fertige RedGIFs-Clips.`));
+      if (d.skipped) wrap.appendChild(el('p', 'help', `${d.skipped} Beiträge übersprungen (nicht scanbar, z. B. nur eingebettet).`));
+      wrap.appendChild(el('p', 'help', 'Quelle: ' + srcName(d.source)));
+      poolState.className = '';
+      poolState.replaceChildren(wrap);
+    } catch { setMsg(poolState, 'Nicht abrufbar.', 'bad'); }
+  }
+
+  $('#tasteReset').addEventListener('click', async () => {
+    if (!confirm('Alles Gelernte verwerfen? Deine Start-Vorlieben bleiben.')) return;
+    await tasteFetch('/api/taste/reset', {}).catch(() => {});
+    document.querySelectorAll('.post').forEach((x) => { x._scoreReady = false; });
+    tasteRefresh(); toast('Zurückgesetzt', 'restart');
+  });
+
   // ---------- Karussell ----------
   function onCarouselScroll(car, sec) {
     const idx = activeIndex(car);
@@ -912,7 +1590,7 @@
     if (sec._dots) {
       sec._dots.querySelectorAll('span').forEach((d, i) => d.classList.toggle('on', i === idx));
     }
-    if (sec._counter) sec._counter.textContent = `${idx + 1} / ${car.children.length}`;
+    if (sec._counter) sec._counter.querySelector('.t').textContent = `${idx + 1} / ${car.children.length}`;
 
     if (sec.dataset.visible === '1') playVideo(v);
     updatePreload(sec);
@@ -929,10 +1607,20 @@
       v.setAttribute('webkit-playsinline', '');
       v.loop = true;
       v.muted = true;
-      v.preload = 'none';
+      v.preload = eager ? 'auto' : 'metadata';
+      if (m.poster) v.poster = m.poster;
       v.src = m.url;
       v._rs = { cands: m.audio || [], audio: null, noAudio: false, sec, index, icon: null };
       v.muted = m.audio && m.audio.length > 0 ? true : !soundOn;
+
+      // Lade-Indikator, bis das Video gepuffert ist
+      const vloader = el('div', 'vid-loader loader sm');
+      slide.appendChild(vloader);
+      const hideLoader = () => { if (vloader.parentNode) vloader.remove(); };
+      v.addEventListener('loadeddata', hideLoader, { once: true });
+      v.addEventListener('playing', hideLoader, { once: true });
+      v.addEventListener('canplay', hideLoader, { once: true });
+      v.addEventListener('error', hideLoader, { once: true });
 
       // Reddit-Ton synchronisieren
       v.onplay = () => { const a = v._rs.audio; if (a) a.play().catch(() => {}); };
@@ -949,30 +1637,84 @@
       v.onplaying = () => { const a = v._rs.audio; if (a) a.play().catch(() => {}); };
 
       // Tippen = Pause/Play
-      const icon = el('div', 'pauseicon', '⏸');
-      v._rs.icon = icon;
+      const pi = el('div', 'pauseicon glass');
+      pi.appendChild(icon('pause'));
+      v._rs.icon = pi;
       let hideTimer = null;
-      const flash = (sym) => {
-        icon.textContent = sym;
-        icon.classList.add('show');
+      const flash = (n) => {
+        setIc(pi, n);
+        pi.classList.add('show');
         clearTimeout(hideTimer);
-        hideTimer = setTimeout(() => icon.classList.remove('show'), 600);
+        hideTimer = setTimeout(() => pi.classList.remove('show'), 600);
       };
-      v.addEventListener('click', () => {
-        if (v.paused) { playVideo(v); flash('▶'); }
-        else { v.pause(); flash('⏸'); }
-      });
+      v._rs.toggle = () => {
+        if (v.paused) { playVideo(v); flash('play'); }
+        else { v.pause(); flash('pause'); }
+      };
       slide.appendChild(v);
-      slide.appendChild(icon);
+      slide.appendChild(pi);
     } else if (m.type === 'embed') {
-      const f = document.createElement('iframe');
-      f.className = 'embed';
-      f.allow = 'autoplay; fullscreen';
-      f.setAttribute('allowfullscreen', '');
-      f.referrerPolicy = 'no-referrer';
-      f.dataset.src = m.url;
-      if (eager) f.src = m.url;
-      slide.appendChild(f);
+      const isRg = (m.url && m.url.includes('redgifs.com')) || (m.src && m.src.includes('redgifs.com'));
+      if (isRg) {
+        // RedGIFs als echtes Video statt iframe: MP4 direkt laden
+        const v = document.createElement('video');
+        v.className = 'media';
+        v.setAttribute('playsinline', '');
+        v.setAttribute('webkit-playsinline', '');
+        v.loop = true;
+        v.muted = !soundOn;
+        v.preload = 'auto';
+        if (m.poster) v.poster = m.poster;
+        v._rs = { cands: [], audio: null, noAudio: true, sec, index, icon: null };
+        const pi = el('div', 'pauseicon glass');
+        pi.appendChild(icon('pause'));
+        v._rs.icon = pi;
+        let hideTimer = null;
+        const flash = (n) => {
+          setIc(pi, n);
+          pi.classList.add('show');
+          clearTimeout(hideTimer);
+          hideTimer = setTimeout(() => pi.classList.remove('show'), 600);
+        };
+        v._rs.toggle = () => {
+          if (v.paused) { playVideo(v); flash('play'); }
+          else { v.pause(); flash('pause'); }
+        };
+        const vloader = el('div', 'vid-loader loader sm');
+        slide.appendChild(vloader);
+        const hideLoader = () => { if (vloader.parentNode) vloader.remove(); };
+        v.addEventListener('loadeddata', hideLoader, { once: true });
+        v.addEventListener('playing', hideLoader, { once: true });
+        v.addEventListener('canplay', hideLoader, { once: true });
+        v.addEventListener('error', hideLoader, { once: true });
+        slide.appendChild(v);
+        slide.appendChild(pi);
+        const clipId = (m.url || m.src || '').replace(/^.*\/ifr\//, '').replace(/^.*\/watch\//, '').split('?')[0];
+        fetch(`/api/redgifs/clip?id=${encodeURIComponent(clipId)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.url) {
+              v.src = d.url;
+              m.src = d.src || d.url;
+              m.url = d.url;
+              m.type = 'video';
+              if (d.poster && !v.poster) v.poster = d.poster;
+              try { v.load(); } catch {}
+              const introEl = $('#intro');
+              if ((!introEl || introEl.hidden) && sec.dataset.visible === '1') playVideo(v);
+            }
+          })
+          .catch(() => { hideLoader(); });
+      } else {
+        const f = document.createElement('iframe');
+        f.className = 'embed';
+        f.allow = 'autoplay; fullscreen';
+        f.setAttribute('allowfullscreen', '');
+        f.referrerPolicy = 'no-referrer';
+        f.dataset.src = m.url;
+        if (eager) f.src = m.url;
+        slide.appendChild(f);
+      }
     } else {
       const img = document.createElement('img');
       img.className = 'media';
@@ -985,9 +1727,9 @@
     return slide;
   }
 
-
   // ---------- Voten und Folgen ----------
   const FOLLOW_KEY = 'redswipe_followed_users';
+  const FOLLOW_CREATORS_KEY = 'redswipe_followed_creators';
   function followedList() {
     try { const a = JSON.parse(localStorage.getItem(FOLLOW_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
   }
@@ -997,14 +1739,100 @@
     if (on) list.push(u);
     try { localStorage.setItem(FOLLOW_KEY, JSON.stringify(list)); } catch {}
   }
+  function followedCreatorsList() {
+    try { const a = JSON.parse(localStorage.getItem(FOLLOW_CREATORS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+  }
+  function isFollowedCreator(u) {
+    if (!u) return false;
+    return followedCreatorsList().some((x) => (typeof x === 'string' ? x : x.id || '').toLowerCase() === u.toLowerCase());
+  }
+  function setFollowedCreator(u, on) {
+    let list = followedCreatorsList().filter((x) => (typeof x === 'string' ? x : x.id || '').toLowerCase() !== u.toLowerCase());
+    if (on) list.push({ id: u, name: u, origin: 'redgifs', added: Date.now() });
+    try { localStorage.setItem(FOLLOW_CREATORS_KEY, JSON.stringify(list)); } catch {}
+  }
+
+  // Gefolgt-Sheet rendern
+  const followingSheet = $('#followingSheet');
+  const followingListEl = $('#followingList');
+  function renderFollowing() {
+    if (!followingListEl) return;
+    followingListEl.replaceChildren();
+    const rgList = followedCreatorsList();
+    const rdList = followedList();
+    if (!rgList.length && !rdList.length) {
+      const empty = el('div', 'following-empty');
+      empty.innerHTML = `${svg('person_add')}<p style="margin-top:12px">Du folgst noch keinen Creatorn.<br><small style="color:var(--on-surf-v)">Tippe an einem Video auf das Personen-Symbol, um dem Creator zu folgen.</small></p>`;
+      followingListEl.appendChild(empty);
+      return;
+    }
+    // RedGIFs Creators
+    rgList.forEach((c) => {
+      const name = typeof c === 'string' ? c : c.name || c.id;
+      const row = el('div', 'following-row');
+      const info = el('div', 'following-info');
+      const av = el('div', 'following-avatar rg', name.slice(0, 2));
+      const names = el('div', 'following-names');
+      names.append(el('span', 'following-name', '@' + name), el('span', 'following-badge rg', 'RedGIFs Creator'));
+      info.append(av, names);
+      info.onclick = () => { window.open(`https://www.redgifs.com/users/${encodeURIComponent(name)}`, '_blank'); };
+
+      const actions = el('div', 'following-actions');
+      const unBtn = railBtn('unfollow', 'person_remove', 'Entfolgen');
+      unBtn.onclick = (e) => {
+        e.stopPropagation();
+        setFollowedCreator(name, false);
+        document.querySelectorAll('.follow[data-u="' + name.replace(/"/g, '') + '"]').forEach((b) => b._paint && b._paint());
+        toast(`@${name} entfolgt`, 'person');
+        renderFollowing();
+      };
+      actions.appendChild(unBtn);
+      row.append(info, actions);
+      followingListEl.appendChild(row);
+    });
+    // Reddit Nutzer
+    rdList.forEach((u) => {
+      const row = el('div', 'following-row');
+      const info = el('div', 'following-info');
+      const av = el('div', 'following-avatar', u.slice(0, 2));
+      const names = el('div', 'following-names');
+      names.append(el('span', 'following-name', 'u/' + u), el('span', 'following-badge rd', 'Reddit'));
+      info.append(av, names);
+      info.onclick = () => { window.open(`https://www.reddit.com/user/${encodeURIComponent(u)}`, '_blank'); };
+
+      const actions = el('div', 'following-actions');
+      const unBtn = railBtn('unfollow', 'person_remove', 'Entfolgen');
+      unBtn.onclick = async (e) => {
+        e.stopPropagation();
+        unBtn.disabled = true;
+        try {
+          await post('/api/follow', { user: u, follow: false });
+          setFollowedLocal(u, false);
+          document.querySelectorAll('.follow[data-u="' + u.replace(/"/g, '') + '"]').forEach((b) => b._paint && b._paint());
+          toast(`u/${u} entfolgt`, 'person');
+          renderFollowing();
+        } catch (err) { toast(err.message, 'error'); unBtn.disabled = false; }
+      };
+      actions.appendChild(unBtn);
+      row.append(info, actions);
+      followingListEl.appendChild(row);
+    });
+  }
+  $('#followSheetBtn').addEventListener('click', () => {
+    renderFollowing();
+    openSheet(followingSheet);
+  });
+
   let toastTimer = 0;
-  function toast(msg) {
+  function toast(msg, ic) {
     let t = document.querySelector('.toast');
-    if (!t) { t = el('div', 'toast'); document.body.appendChild(t); }
-    t.textContent = msg;
-    t.hidden = false;
+    if (t) t.remove();
+    t = el('div', 'toast glass');
+    if (ic) t.appendChild(icon(ic, 's'));
+    t.appendChild(el('span', '', msg));
+    document.body.appendChild(t);
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.hidden = true; }, 2500);
+    toastTimer = setTimeout(() => { t.remove(); }, 2500);
   }
   async function post(path, body) {
     const r = await fetch(path, { method: 'POST', headers: { 'X-Redswipe': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -1014,50 +1842,63 @@
       throw new Error(m);
     }
   }
+  function railBtn(cls, ic, label) {
+    const b = el('button', 'ib glass ' + cls);
+    b.type = 'button';
+    b.setAttribute('aria-label', label);
+    b.appendChild(icon(ic));
+    return b;
+  }
   function buildRail(p) {
     const rail = el('div', 'rail');
     let vote = p.vote || 'none';
-    const up = el('button', 'up', '▲');
-    const down = el('button', 'down', '▼');
-    up.type = down.type = 'button';
-    up.setAttribute('aria-label', 'Upvote');
-    down.setAttribute('aria-label', 'Downvote');
+    const up = railBtn('up', 'thumb_up', 'Upvote');
+    const down = railBtn('down', 'thumb_down', 'Downvote');
     const paint = () => { up.classList.toggle('on', vote === 'up'); down.classList.toggle('on', vote === 'down'); };
     paint();
-    const cast = async (target) => {
-      const prev = vote;
+    // Der Algorithmus lernt sofort beim Tippen; Reddit bekommt den Vote im Hintergrund.
+    const cast = (target) => {
       vote = vote === target ? 'none' : target;
       paint();
-      up.disabled = down.disabled = true;
-      try { await post('/api/vote', { id: p.id, state: vote }); }
-      catch (e) { vote = prev; paint(); toast(e.message); }
-      up.disabled = down.disabled = false;
+      const sec = up.closest('.post');
+      if (sec && (vote === 'up' || vote === 'down')) sendVote(sec, vote);
+      const want = vote;
+      if (p.origin === 'redgifs') return; // kein Reddit-Beitrag: nur der Algorithmus lernt
+      post('/api/vote', { id: p.id, state: want }).catch((e) => toast('Reddit: ' + e.message + ' (gelernt ist es trotzdem)', 'error'));
     };
     up.addEventListener('click', (e) => { e.stopPropagation(); cast('up'); });
     down.addEventListener('click', (e) => { e.stopPropagation(); cast('down'); });
+    rail._like = () => { if (vote !== 'up') cast('up'); };
     rail.append(up, down);
 
-    if (p.author && p.author !== '[deleted]') {
-      const fb = el('button', 'follow', '＋');
-      fb.type = 'button';
+    if (p.author && p.author !== '[deleted]' && p.author !== 'unknown') {
+      const isRg = p.origin === 'redgifs';
+      const fb = railBtn('follow', 'person_add', isRg ? `@${p.author} folgen` : `u/${p.author} folgen`);
       const paintF = () => {
-        const on = isFollowed(p.author);
+        const on = isRg ? isFollowedCreator(p.author) : isFollowed(p.author);
         fb.classList.toggle('on', on);
-        fb.textContent = on ? '✓' : '＋';
-        fb.setAttribute('aria-label', on ? `u/${p.author} entfolgen` : `u/${p.author} folgen`);
+        setIc(fb, on ? 'person_check' : 'person_add');
+        fb.setAttribute('aria-label', on ? (isRg ? `@${p.author} entfolgen` : `u/${p.author} entfolgen`) : (isRg ? `@${p.author} folgen` : `u/${p.author} folgen`));
       };
       paintF();
       fb.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const want = !isFollowed(p.author);
-        fb.disabled = true;
-        try {
-          await post('/api/follow', { user: p.author, follow: want });
-          setFollowedLocal(p.author, want);
+        if (isRg) {
+          const want = !isFollowedCreator(p.author);
+          setFollowedCreator(p.author, want);
           document.querySelectorAll('.follow[data-u="' + p.author.replace(/"/g, '') + '"]').forEach((b) => b._paint && b._paint());
-          toast(want ? `Du folgst u/${p.author}` : `u/${p.author} entfolgt`);
-        } catch (err) { toast(err.message); }
-        fb.disabled = false;
+          toast(want ? `Du folgst @${p.author}` : `@${p.author} entfolgt`, want ? 'person_check' : 'person');
+        } else {
+          const want = !isFollowed(p.author);
+          fb.disabled = true;
+          try {
+            await post('/api/follow', { user: p.author, follow: want });
+            setFollowedLocal(p.author, want);
+            document.querySelectorAll('.follow[data-u="' + p.author.replace(/"/g, '') + '"]').forEach((b) => b._paint && b._paint());
+            toast(want ? `Du folgst u/${p.author}` : `u/${p.author} entfolgt`, want ? 'person_check' : 'person');
+          } catch (err) { toast(err.message, 'error'); }
+          fb.disabled = false;
+        }
       });
       fb.dataset.u = p.author;
       fb._paint = paintF;
@@ -1066,11 +1907,27 @@
     return rail;
   }
 
+  function heartBurst(x, y) {
+    const h = el('div', 'heart');
+    h.innerHTML = svg('favorite');
+    h.style.left = x + 'px'; h.style.top = y + 'px';
+    document.body.appendChild(h);
+    setTimeout(() => h.remove(), 850);
+  }
+
   function appendPost(p) {
     const eager = feed.querySelectorAll('.post').length < 2;
     const sec = el('section', 'post');
     sec.dataset.visible = '0';
     sec._title = p.title;
+    sec._post = p;
+    const mb = el('button', 'match glass soft');
+    mb.type = 'button';
+    mb.setAttribute('aria-label', 'Passt zu dir');
+    mb.appendChild(el('span', 'row')).append(el('span', 'ring'), el('span', 'num', '…'));
+    mb.addEventListener('click', (e) => { e.stopPropagation(); sec._whyOpen = !sec._whyOpen; renderMatch(sec, sec._lastMatch); });
+    sec.appendChild(mb);
+    sec._match = mb;
 
     const car = el('div', 'carousel');
     car.dataset.idx = '0';
@@ -1092,13 +1949,15 @@
       sec.appendChild(dots);
       sec._dots = dots;
 
-      const counter = el('div', 'counter', `1 / ${p.media.length}`);
+      const counter = el('div', 'counter glass');
+      counter.append(icon('layers', 's'), el('span', 't', `1 / ${p.media.length}`));
       sec.appendChild(counter);
       sec._counter = counter;
 
       [['l', -1], ['r', 1]].forEach(([side, dir]) => {
-        const b = el('button', 'arrow ' + side, dir < 0 ? '‹' : '›');
+        const b = el('button', 'ib glass arrow ' + side);
         b.type = 'button';
+        b.appendChild(icon(dir < 0 ? 'chevron_left' : 'chevron_right'));
         b.setAttribute('aria-label', dir < 0 ? 'Zurück' : 'Weiter');
         b.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1108,25 +1967,27 @@
       });
     }
 
-    // Ton-Button (nur bei Beiträgen mit Video)
+    const rail = buildRail(p);
+    sec._like = rail._like;
+    // Ton-Button (nur bei Beiträgen mit Video), unten in der rechten Leiste
     if (p.media.some((m) => m.type === 'video')) {
-      const sb = el('button', 'sound', soundOn ? '🔊' : '🔇');
-      sb.type = 'button';
-      sb.setAttribute('aria-label', 'Ton an/aus');
+      const sb = railBtn('sound', soundOn ? 'volume_up' : 'volume_off', 'Ton an/aus');
+      sb.classList.toggle('on', soundOn);
       sb.addEventListener('click', (e) => {
         e.stopPropagation();
         soundOn = !soundOn;
         applySound();
       });
-      sec.appendChild(sb);
+      rail.appendChild(sb);
       sec._sound = sb;
     }
+    sec.appendChild(rail);
 
-    sec.appendChild(buildRail(p));
-
-    // Info: nur "r/Subreddit · u/Autor" (Link zum Beitrag), wie im Addon
+    // Info: "r/Subreddit · u/Autor" (Link zum Beitrag)
     const info = el('div', 'info');
-    const link = el('a', '', `r/${p.subreddit} · u/${p.author}`);
+    const link = el('a', 'glass');
+    const rg = p.origin === 'redgifs';
+    link.append(el('span', 't', rg ? `${p.subreddit} · ${p.author}` : `r/${p.subreddit} · u/${p.author}`), icon('open', 'xs'));
     link.href = p.permalink;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
@@ -1134,6 +1995,73 @@
     sec.appendChild(info);
 
     car.addEventListener('scroll', () => onCarouselScroll(car, sec), { passive: true });
+    let lastTap = 0, tapTimer = 0;
+    let pressTimer = null, is2x = false, startPos = { x: 0, y: 0 }, suppressClick = 0;
+
+    car.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      startPos = { x: e.clientX, y: e.clientY };
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        const v = activeVideo(sec);
+        if (v) {
+          is2x = true;
+          v.playbackRate = 2.0;
+          if (v._rs && v._rs.audio) v._rs.audio.playbackRate = 2.0;
+          let b = sec.querySelector('.speed-badge');
+          if (!b) {
+            b = el('div', 'speed-badge');
+            b.innerHTML = `${svg('fast_forward')} <span>2×</span>`;
+            sec.appendChild(b);
+          }
+          b.style.display = 'flex';
+        }
+      }, 220);
+    });
+
+    const stop2x = () => {
+      clearTimeout(pressTimer);
+      if (is2x) {
+        is2x = false;
+        const v = activeVideo(sec);
+        if (v) {
+          v.playbackRate = 1.0;
+          if (v._rs && v._rs.audio) v._rs.audio.playbackRate = 1.0;
+        }
+        const b = sec.querySelector('.speed-badge');
+        if (b) b.style.display = 'none';
+        suppressClick = Date.now() + 300;
+      }
+    };
+
+    car.addEventListener('pointermove', (e) => {
+      if (pressTimer && Math.hypot(e.clientX - startPos.x, e.clientY - startPos.y) > 14) {
+        clearTimeout(pressTimer);
+      }
+    });
+    car.addEventListener('pointerup', stop2x);
+    car.addEventListener('pointercancel', stop2x);
+    car.addEventListener('pointerleave', stop2x);
+    car.addEventListener('contextmenu', (e) => {
+      if (is2x || Date.now() < suppressClick) e.preventDefault();
+    });
+
+    car.addEventListener('click', (e) => {
+      if (Date.now() < suppressClick) {
+        e.stopPropagation();
+        return;
+      }
+      const t = Date.now();
+      if (t - lastTap < 300) {
+        clearTimeout(tapTimer); lastTap = 0;
+        heartBurst(e.clientX, e.clientY);
+        if (sec._like) sec._like();
+        return;
+      }
+      lastTap = t;
+      tapTimer = setTimeout(() => { const v = activeVideo(sec); if (v && v._rs.toggle) v._rs.toggle(); }, 260);
+    });
+    if (p.match) { renderMatch(sec, p.match); sec._scoreReady = true; }
     feed.appendChild(sec);
     io.observe(sec);
   }
@@ -1142,7 +2070,7 @@
   async function fetchPage(my) {
     clearStates();
     const spin = addState(el('div', 'state'));
-    spin.appendChild(el('div', 'spinner'));
+    spin.append(el('div', 'loader'), el('p', '', 'Lädt Beiträge …'));
     spin.setAttribute('aria-label', 'Lädt');
     try {
       let url = `/api/feed?q=${enc(cur.q)}&sort=${enc(cur.sort)}&t=${enc(cur.t)}`;
@@ -1162,12 +2090,71 @@
         appendPost(p);
         added++;
       }
+      const first = feed.querySelector('.post');
+      if (first) updatePreload(first);
       return { added, more: !!after };
     } catch {
       if (my !== token) return null;
       spin.remove();
-      return { error: 'Netzwerkfehler – bitte erneut versuchen.' };
+      return { error: 'Netzwerkfehler. Bitte erneut versuchen.' };
     }
+  }
+
+  // Gescannt-Modus: fertig gescannte, ungesehene Beiträge vom Server, nach Geschmack sortiert
+  const poolFetch = () => fetch('/api/pool', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ n: 8, exclude: [...seen].slice(-400) }) });
+  async function fetchPool(my) {
+    clearStates();
+    const spin = addState(el('div', 'state'));
+    spin.append(el('div', 'loader'), el('p', '', 'Holt gescannte Beiträge …'));
+    try {
+      const res = await poolFetch();
+      const data = await res.json().catch(() => ({}));
+      if (my !== token) return null;
+      spin.remove();
+      if (!res.ok) return { error: data.error || `Fehler (HTTP ${res.status})` };
+      let added = 0;
+      for (const p of data.posts || []) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id); appendPost(p); added++;
+      }
+      const first = feed.querySelector('.post');
+      if (first) updatePreload(first);
+      return { added, stats: data.stats || {} };
+    } catch {
+      if (my !== token) return null;
+      spin.remove();
+      return { error: 'Netzwerkfehler. Bitte erneut versuchen.' };
+    }
+  }
+
+  // Noch nichts Fertiges da: Wartebildschirm mit Live-Zahlen, fragt alle 4 s nach
+  function waitPool(my, stats) {
+    if (feed.querySelector('.state.wait')) return;
+    const box = el('div', 'state wait');
+    const live = el('div');
+    live.style.cssText = 'display:contents';
+    box.append(el('div', 'loader'), el('h3', '', 'Scanne im Hintergrund'),
+      el('p', '', 'Hier erscheinen nur fertig gescannte Beiträge, die du noch nicht gesehen hast. Das läuft auf dem Server weiter, auch wenn die Seite zu ist.'), live);
+    const render = (d) => { live.replaceChildren(statTiles(d), poolNote(d)); };
+    render(stats || {});
+    addState(box);
+    const tick = async () => {
+      if (!box.isConnected || my !== token) return;
+      try {
+        const d = await (await poolFetch()).json();
+        if (!box.isConnected || my !== token) return;
+        const fresh = (d.posts || []).filter((p) => !seen.has(p.id));
+        if (fresh.length) {
+          box.remove();
+          fresh.forEach((p) => { seen.add(p.id); appendPost(p); });
+          return;
+        }
+        render(d.stats || {});
+      } catch { /* nochmal */ }
+      setTimeout(tick, 4000);
+    };
+    setTimeout(tick, 3000);
   }
 
   // Lädt Seiten, bis Beiträge mit Medien da sind (höchstens 5 leere Seiten hintereinander)
@@ -1176,6 +2163,14 @@
     busy = true;
     let empties = 0;
     try {
+      if (mode === 'pool') {
+        if (feed.querySelector('.state.wait')) return;
+        const r = await fetchPool(my);
+        if (!r || my !== token) return;
+        if (r.error) { showError(r.error, my); return; }
+        if (r.added === 0) waitPool(my, r.stats);
+        return;
+      }
       for (;;) {
         const r = await fetchPage(my);
         if (!r || my !== token) return;
@@ -1188,6 +2183,23 @@
     } finally {
       if (my === token) busy = false;
     }
+  }
+
+  // Kurzer Name der Quelle für die obere Leiste
+  const SORT_NAMES = { best: 'Best', hot: 'Hot', new: 'Neu', top: 'Top', rising: 'Rising' };
+  function srcName(q) {
+    if (!q || q === 'home') return 'Reddit-Startseite';
+    if (q.replace(/\/+$/, '').toLowerCase() === DEFAULT_Q.replace(/\/+$/, '').toLowerCase()) return 'Mein Feed';
+    let m = q.match(/\/m\/([^/?#]+)/i);
+    if (m) return 'm/' + m[1];
+    m = q.match(/(?:^|\/)r\/([^/?#]+)/i);
+    if (m) return 'r/' + m[1];
+    return q.replace(/^https?:\/\/(www\.|old\.)?reddit\.com\/?/i, '') || q;
+  }
+  function updateSrcBtn() {
+    $('#srcLabel').textContent = srcName(cur.q);
+    $('#srcSort').textContent = mode === 'pool' ? '· für dich'
+      : '· ' + SORT_NAMES[cur.sort] + (cur.sort === 'top' ? ' ' + $('#t [aria-checked="true"]').textContent : '');
   }
 
   function load() {
@@ -1208,22 +2220,23 @@
     if (cur.sort === 'top') params.set('t', cur.t);
     history.replaceState(null, '', '?' + params.toString());
 
-    collapseBar(true);
-    runLoad(token);
+    updateSrcBtn();
+    if (mode === 'pool') {
+      const my = token;
+      fetch('/api/pool/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: q || 'home' }) })
+        .then((r) => r.ok ? null : r.json().then((d) => { throw new Error(d.error || 'Quelle ungültig'); }))
+        .then(() => { if (my === token) runLoad(my); })
+        .catch((e) => { if (my === token) showError(e.message, my); });
+    } else {
+      runLoad(token);
+    }
   }
 
-  // Leiste einklappen, damit das Medium die ganze Höhe hat (☰ blendet sie wieder ein)
-  const topbar = $('#topbar'), menuBtn = $('#menuBtn');
-  function collapseBar(on) {
-    topbar.classList.toggle('collapsed', on);
-    menuBtn.hidden = !on;
-    scanBtn.hidden = !on;
-    ageBtn.hidden = !on;
-    nowBtn.hidden = !on;
-  }
-  menuBtn.addEventListener('click', () => collapseBar(false));
+  const srcSheet = $('#srcSheet');
+  $('#srcBtn').addEventListener('click', () => { openSheet(srcSheet); });
+  $('#qClear').addEventListener('click', () => { input.value = ''; input.focus(); });
   setScanOn(scanOn);
-  $('#homeBtn').addEventListener('click', () => { input.value = ''; load(); });
+  $('#homeBtn').addEventListener('click', () => { input.value = DEFAULT_Q; closeSheet(srcSheet); load(); });
 
   // Echter Vollbildmodus, wo der Browser ihn erlaubt (iPhone-Safari lehnt ab, dann geht es normal weiter)
   function goFullscreen() {
@@ -1233,37 +2246,33 @@
 
   // Endlos-Scrollen: nahe an den letzten 5 Beiträgen nachladen
   feed.addEventListener('scroll', () => {
-    if (!after || busy) return;
+    if (busy || (mode !== 'pool' && !after)) return;
+    if (mode === 'pool' && feed.querySelector('.state.wait')) return;
     const posts = feed.querySelectorAll('.post');
     if (!posts.length) return;
     const idx = Math.round(feed.scrollTop / feed.clientHeight);
     if (idx >= posts.length - 5) runLoad(token);
   }, { passive: true });
 
-  form.addEventListener('submit', (e) => { e.preventDefault(); goFullscreen(); load(); });
+  form.addEventListener('submit', (e) => { e.preventDefault(); input.blur(); closeSheet(srcSheet); goFullscreen(); load(); });
 
-  sortSel.addEventListener('change', () => {
-    timeSel.hidden = sortSel.value !== 'top';
-    store.set('rs-sort', sortSel.value);
-    load();
-  });
-  timeSel.addEventListener('change', () => {
-    store.set('rs-t', timeSel.value);
-    load();
-  });
+  sortSel.onChange = () => { syncTime(); store.set('rs-sort', sortSel.value); load(); };
+  timeSel.onChange = () => { store.set('rs-t', timeSel.value); load(); };
 
-  feed.addEventListener('click', (e) => {
+  document.addEventListener('click', (e) => {
     const b = e.target.closest('button.ex');
     if (!b) return;
     input.value = b.dataset.q;
+    closeSheet(srcSheet);
     goFullscreen();
     load();
   });
 
-  // Tastatur (nur wenn kein Eingabefeld den Fokus hat)
+  // Tastatur (nur wenn kein Eingabefeld den Fokus hat und kein Sheet offen ist)
   document.addEventListener('keydown', (e) => {
     const tag = document.activeElement && document.activeElement.tagName;
     if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(tag)) return;
+    if (document.querySelector('.sheet:not([hidden])')) return;
     let dir = 0;
     if (e.key === 'ArrowDown' || e.key === 'j' || e.key === ' ') dir = 1;
     else if (e.key === 'ArrowUp' || e.key === 'k') dir = -1;
@@ -1275,21 +2284,65 @@
   // ---------- Start ----------
   const savedSort = store.get('rs-sort');
   const savedT = store.get('rs-t');
-  if (savedSort && [...sortSel.options].some((o) => o.value === savedSort)) sortSel.value = savedSort;
-  if (savedT && [...timeSel.options].some((o) => o.value === savedT)) timeSel.value = savedT;
-  timeSel.hidden = sortSel.value !== 'top';
-  input.value = store.get('rs-q') || '';
+  if (savedSort && sortSel.has(savedSort)) sortSel.value = savedSort;
+  if (savedT && timeSel.has(savedT)) timeSel.value = savedT;
+  input.value = store.get('rs-q') || DEFAULT_Q;
 
   const params = new URLSearchParams(location.search);
-  if (params.get('sort') && [...sortSel.options].some((o) => o.value === params.get('sort'))) {
-    sortSel.value = params.get('sort');
-    timeSel.hidden = sortSel.value !== 'top';
+  if (params.get('sort') && sortSel.has(params.get('sort'))) sortSel.value = params.get('sort');
+  if (params.get('t') && timeSel.has(params.get('t'))) timeSel.value = params.get('t');
+  if (params.get('q')) input.value = params.get('q');
+  syncTime();
+  // Startbildschirm: erst den Stand des Hintergrund-Scans zeigen, mit "Weiter" geht es zum ersten Video
+  const intro = $('#intro');
+  let introTimer = 0;
+  async function introTick() {
+    if (intro.hidden) return;
+    try {
+      const d = await (await fetch('/api/pool/stats')).json();
+      const live = $('#introLive');
+      live.replaceChildren(statTiles(d), poolNote(d));
+      if (d.ready_rg) live.appendChild(el('p', 'help', `Davon ${d.ready_rg} RedGIFs-Clips.`));
+    } catch { /* nochmal */ }
+    introTimer = setTimeout(introTick, 3000);
   }
-  if (params.get('t') && [...timeSel.options].some((o) => o.value === params.get('t'))) {
-    timeSel.value = params.get('t');
-  }
-  if (params.has('q')) input.value = params.get('q');
-  load(); // wie das Addon: sofort starten (leer = Startseite)
+  feed.replaceChildren();
+  intro.hidden = false;
+  introTick();
+  // Vorrat schon im Hintergrund vorladen, während der Startbildschirm aktiv ist
+  mode = 'pool';
+  syncMode();
+  load();
+
+  $('#introGo').addEventListener('click', () => {
+    clearTimeout(introTimer);
+    mode = 'pool';
+    syncMode();
+    goFullscreen();
+    intro.classList.add('out');
+    setTimeout(() => { intro.hidden = true; }, 320);
+    const first = feed.querySelector('.post');
+    if (first) {
+      if (first.dataset.visible === '1' && !first._seenSent) {
+        first._seenSent = true;
+        fetch('/api/pool/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: first._post.id }) }).catch(() => {});
+      }
+      updatePreload(first);
+      const v = activeVideo(first);
+      if (v) playVideo(v);
+    } else {
+      load();
+    }
+  });
+  $('#introLiveBtn').addEventListener('click', () => {
+    clearTimeout(introTimer);
+    mode = 'live';
+    syncMode();
+    goFullscreen();
+    intro.classList.add('out');
+    setTimeout(() => { intro.hidden = true; }, 320);
+    load();
+  });
 })();
 </script>
 </body>
