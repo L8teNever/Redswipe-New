@@ -311,13 +311,13 @@
     foot.replaceChildren(el('div', 'loader'));
     try {
       const p = new URLSearchParams({ kind, page: String(page + 1) }); if (kind === 'search') p.set('q', q.trim()); if (kind === 'user') { p.set('path', upath); if (uq) p.set('q', uq); } const so = sortOf(); if (so) p.set('sort', so);
-      if (kind === 'home' && selCats.length) p.set('cats', selCats.map((c) => c.slug + (c.id ? '~' + c.id : '')).join(','));
+      if (catsOn() && getCats().length) p.set('cats', getCats().map((c) => c.slug + (c.id ? '~' + c.id : '')).join(','));
       const r = await fetch('/api/ph/list?' + p);
       const d = await r.json().catch(() => ({}));
       if (my !== token) return;
       if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
       page++;
-      if (kind === 'user') $('#uInfo').textContent = uq ? (d.searched ? (d.items || []).length + ' Treffer für „' + uq + '“ in ' + d.searched + ' Videos' + (d.partial ? ' (nicht alle durchsucht)' : '') : 'Suche …') : 'Alle Videos';
+      if (kind === 'user') $('#uInfo').textContent = (uq || userCats.length) ? (d.searched ? (d.items || []).length + ' Treffer' + (uq ? ' für „' + uq + '“' : '') + (userCats.length ? ' in ' + userCats.map((c) => c.name).join(' + ') : '') + ' unter ' + d.searched + ' Videos' + (d.partial ? ' (nicht alle durchsucht)' : '') : 'Suche …') : 'Alle Videos';
       if (kind === 'user' && d.name) { $('#uName').textContent = d.name; document.title = d.name + ' · Pornhub'; }
       const items = (d.items || []).filter((it) => !seen.has(it.key));
       items.forEach((it) => { seen.add(it.key); grid.appendChild(card(it)); });
@@ -326,7 +326,7 @@
         done = true;
         if (!grid.children.length) {
           if ((kind === 'subs' || kind === 'favs') && !d.login) state('Du bist im Server-Browser nicht bei Pornhub eingeloggt.<br>Melde dich einmal auf <a href="https://redswipe-login.kulbarts.com" target="_blank" rel="noopener" style="color:var(--acc)">redswipe-login.kulbarts.com</a> bei pornhub.com an.');
-          else state({ subs: 'Keine Videos von deinen Abos gefunden.', favs: 'Du hast noch keine Favoriten.', user: uq ? 'Keine Videos zu „' + uq + '“ gefunden.' : 'Dieser Uploader hat keine öffentlichen Videos.' }[kind] || 'Keine Videos gefunden.');
+          else state({ subs: 'Keine Videos von deinen Abos gefunden.', favs: 'Du hast noch keine Favoriten.', user: (uq || userCats.length) ? 'Keine passenden Videos gefunden.' : 'Dieser Uploader hat keine öffentlichen Videos.' }[kind] || 'Keine Videos gefunden.');
         }
       }
     } catch (e) {
@@ -420,7 +420,12 @@
   }
   function sortOf() { const v = store.get('ph-sort-' + kind, ''); return sortOpts().some(([k]) => k === v) ? v : ''; }
   let smode = store.get('ph-smode', 'v') === 'p' ? 'p' : 'v';
-  let selCats = []; try { selCats = JSON.parse(store.get('ph-cats', '[]')) || []; } catch {}
+  let homeCats = []; try { homeCats = JSON.parse(store.get('ph-cats', '[]')) || []; } catch {}
+  let userCats = [];
+  // Kategorien der aktuellen Liste: Startseite (gemerkt) oder Creator-Seite (nur für diesen Creator)
+  const catsOn = () => kind === 'home' || kind === 'user';
+  const getCats = () => kind === 'user' ? userCats : kind === 'home' ? homeCats : [];
+  const setCats = (a) => { if (kind === 'user') userCats = a; else homeCats = a; };
   const chip = (cls, label, fn) => { const b = el('button', 'chip ' + cls, label); b.type = 'button'; b.onclick = fn; return b; };
   function renderSorts() {
     const cur = sortOf(), row = [];
@@ -429,9 +434,10 @@
         if (smode === m) return; smode = m; store.set('ph-smode', m); qIn.placeholder = m === 'p' ? 'Name suchen …' : 'Suchen …'; renderSorts(); reload();
       })));
     }
-    if (kind === 'home') {
-      row.push(chip(selCats.length ? 'acc' : '', selCats.length ? 'Kategorien · ' + selCats.length : 'Kategorien', openCats));
-      selCats.forEach((c) => { const b = chip('cat', c.name, () => { selCats = selCats.filter((x) => x.slug !== c.slug); saveCats(); }); b.appendChild(el('i', '', '✕')); row.push(b); });
+    if (catsOn()) {
+      const sc = getCats();
+      row.push(chip(sc.length ? 'acc' : '', sc.length ? 'Kategorien · ' + sc.length : 'Kategorien', openCats));
+      sc.forEach((c) => { const b = chip('cat', c.name, () => { setCats(getCats().filter((x) => x.slug !== c.slug)); saveCats(); }); b.appendChild(el('i', '', '✕')); row.push(b); });
     }
     const opts = kind === 'search' && smode === 'p' ? [] : sortOpts();
     if (row.length && opts.length) row.push(el('span', 'div'));
@@ -440,7 +446,7 @@
     sortsEl.replaceChildren(...row);
     grid.classList.toggle('people', kind === 'search' && smode === 'p');
   }
-  function saveCats() { store.set('ph-cats', JSON.stringify(selCats)); renderSorts(); reload(); }
+  function saveCats() { if (kind === 'home') store.set('ph-cats', JSON.stringify(homeCats)); if (kind === 'user') $('#uInfo').textContent = 'Durchsuche alle Videos … (kann etwas dauern)'; renderSorts(); reload(); }
 
   // ---------- Kategorien-Auswahl ----------
   const catPick = $('#catPick'), cpG = $('#cpG'), cpQ = $('#cpQ');
@@ -461,7 +467,7 @@
   }
   function cpBtn() { $('#cpOk').textContent = pickSel.length ? 'Anwenden (' + pickSel.length + ')' : 'Anwenden'; }
   async function openCats() {
-    pickSel = selCats.slice(); cpQ.value = ''; cpBtn();
+    pickSel = getCats().slice(); cpQ.value = ''; cpBtn();
     catPick.hidden = false; document.body.style.overflow = 'hidden';
     cpRender();
     if (!allCats) {
@@ -477,7 +483,7 @@
   $('#cpX').onclick = closeCats;
   catPick.addEventListener('click', (e) => { if (e.target === catPick) closeCats(); });
   $('#cpReset').onclick = () => { pickSel = []; cpBtn(); cpRender(); };
-  $('#cpOk').onclick = () => { closeCats(); const a = selCats.map((c) => c.slug).join(), b = pickSel.map((c) => c.slug).join(); if (a !== b) { selCats = pickSel.slice(); saveCats(); } };
+  $('#cpOk').onclick = () => { closeCats(); const a = getCats().map((c) => c.slug).join(), b = pickSel.map((c) => c.slug).join(); if (a !== b) { setCats(pickSel.slice()); saveCats(); } };
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !catPick.hidden) closeCats(); });
 
   // ---------- Shorts (Redswipe eingebettet) ----------
@@ -517,13 +523,13 @@
   uForm.addEventListener('submit', (e) => {
     e.preventDefault(); uQ.blur();
     const v = uQ.value.trim(); if (v === uq) return; uq = v;
-    $('#uInfo').textContent = uq ? 'Durchsuche alle Videos … (kann etwas dauern)' : 'Alle Videos';
+    $('#uInfo').textContent = (uq || userCats.length) ? 'Durchsuche alle Videos … (kann etwas dauern)' : 'Alle Videos';
     reload();
   });
-  uQ.addEventListener('input', () => { if (!uQ.value && uq) { uq = ''; $('#uInfo').textContent = 'Alle Videos'; reload(); } });
+  uQ.addEventListener('input', () => { if (!uQ.value && uq) { uq = ''; if (!userCats.length) $('#uInfo').textContent = 'Alle Videos'; reload(); } });
   function openUser(path, name) {
     if (kind === 'user' && upath === path) return;
-    upath = path; uq = ''; uQ.value = ''; $('#uInfo').textContent = 'Alle Videos';
+    upath = path; uq = ''; userCats = []; uQ.value = ''; $('#uInfo').textContent = 'Alle Videos';
     const n = name || path.split('/').pop();
     $('#uName').textContent = n; $('#uAva').textContent = n.charAt(0);
     setKind('user');

@@ -157,17 +157,11 @@ const v=(f.mediaDefinitions||[]).filter(m=>m.format==='hls'&&m.videoUrl).map(m=>
 const up=document.querySelector('.video-detailed-info .usernameBadgesWrapper a, .userInfo .usernameWrap a, .video-info-row .usernameWrap a');
 return{ok:true,title:f.video_title||document.title,duration:f.video_duration||0,thumb:f.image_url||'',uploader:up?up.textContent.trim():'',sources:v}})()"#;
 
-/// In allen Videos eines Uploaders nach Titel suchen. Die gesammelte Liste wird 30 Minuten gemerkt.
-async fn search_user(url: &str, q: &str, page: u32) -> Response {
+/// Alle Seiten einer Liste einsammeln, 30 Minuten gemerkt.
+async fn crawl_cached(url: &str) -> Result<Value, Response> {
     use std::collections::HashMap;
     use std::time::Instant;
     static CACHE: std::sync::Mutex<Option<HashMap<String, (Instant, Value)>>> = std::sync::Mutex::new(None);
-    if q.len() > 100 {
-        return err(StatusCode::BAD_REQUEST, "Suchbegriff zu lang");
-    }
-    if page > 1 {
-        return Json(json!({ "items": [], "page": page })).into_response();
-    }
     // Ohne Seitenzahl als Schlüssel (gleiche Liste für alle Suchen auf dieser Sortierung)
     let base = url.replace("?page=1&", "?").replace("?page=1", "");
     let cached = CACHE
@@ -177,22 +171,62 @@ async fn search_user(url: &str, q: &str, page: u32) -> Response {
         .get(&base)
         .filter(|(t, _)| t.elapsed() < Duration::from_secs(1800))
         .map(|(_, v)| v.clone());
-    let v = match cached {
-        Some(v) => v,
-        None => match browser::eval_in_page(url, &format!("{PARSE_JS}{CRAWL_TAIL_JS}")).await {
-            Ok(v) if v["ok"].as_bool() == Some(true) => {
-                let mut c = CACHE.lock().unwrap();
-                let m = c.get_or_insert_with(HashMap::new);
-                if m.len() > 50 {
-                    m.clear();
-                }
-                m.insert(base, (Instant::now(), v.clone()));
-                v
+    if let Some(v) = cached {
+        return Ok(v);
+    }
+    match browser::eval_in_page(url, &format!("{PARSE_JS}{CRAWL_TAIL_JS}")).await {
+        Ok(v) if v["ok"].as_bool() == Some(true) => {
+            let mut c = CACHE.lock().unwrap();
+            let m = c.get_or_insert_with(HashMap::new);
+            if m.len() > 80 {
+                m.clear();
             }
-            Ok(v) => return err(StatusCode::BAD_GATEWAY, v["error"].as_str().unwrap_or("Seite nicht lesbar").to_string()),
-            Err(e) => return browser_failed(e),
-        },
+            m.insert(base, (Instant::now(), v.clone()));
+            Ok(v)
+        }
+        Ok(v) => Err(err(StatusCode::BAD_GATEWAY, v["error"].as_str().unwrap_or("Seite nicht lesbar").to_string())),
+        Err(e) => Err(browser_failed(e)),
+    }
+}
+
+/// Suche und/oder Kategorien innerhalb der Videos eines Uploaders. Pornhub hat dafür keinen Filter:
+/// Titel werden lokal gefiltert, Kategorien über die Pornhub-Suche nach dem Namen mit Kategorie-Filter
+/// (nur Treffer dieses Uploaders), und alles mit der vollständigen Uploader-Liste abgeglichen.
+async fn search_user(url: &str, q: &str, page: u32, path: &str, cats: &[(&str, &str)]) -> Response {
+    if q.len() > 100 {
+        return err(StatusCode::BAD_REQUEST, "Suchbegriff zu lang");
+    }
+    if page > 1 {
+        return Json(json!({ "items": [], "page": page })).into_response();
+    }
+    let v = match crawl_cached(url).await {
+        Ok(v) => v,
+        Err(r) => return r,
     };
+    let mut partial = v["partial"].as_bool() == Some(true);
+    let last = |x: &str| x.rsplit('/').next().unwrap_or("").to_lowercase();
+    let who = last(path);
+    let mut keep: Option<std::collections::HashSet<String>> = None;
+    let name = v["name"].as_str().unwrap_or("").trim().to_string();
+    for (_, id) in cats.iter().filter(|c| !c.1.is_empty()) {
+        if name.is_empty() {
+            break;
+        }
+        let surl = format!("{SITE}/video/search?search={}&filter_category={id}&page=1", urlencoding::encode(&name));
+        let r = match crawl_cached(&surl).await {
+            Ok(r) => r,
+            Err(r) => return r,
+        };
+        partial |= r["partial"].as_bool() == Some(true);
+        let set: std::collections::HashSet<String> = r["items"]
+            .as_array()
+            .map(|a| a.iter().filter(|it| it["upath"].as_str().is_some_and(|u| last(u) == who)).filter_map(|it| it["key"].as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        keep = Some(match keep {
+            Some(k) => k.intersection(&set).cloned().collect(),
+            None => set,
+        });
+    }
     let words: Vec<String> = q.to_lowercase().split_whitespace().map(str::to_string).collect();
     let all = v["items"].as_array().cloned().unwrap_or_default();
     let total = all.len();
@@ -200,10 +234,10 @@ async fn search_user(url: &str, q: &str, page: u32) -> Response {
         .into_iter()
         .filter(|it| {
             let t = it["title"].as_str().unwrap_or("").to_lowercase();
-            words.iter().all(|w| t.contains(w.as_str()))
+            words.iter().all(|w| t.contains(w.as_str())) && keep.as_ref().is_none_or(|k| it["key"].as_str().is_some_and(|x| k.contains(x)))
         })
         .collect();
-    Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "searched": total, "partial": v["partial"].clone() })).into_response()
+    Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "searched": total, "partial": partial })).into_response()
 }
 
 /// Personen suchen (Pornstars und Models).
@@ -300,7 +334,7 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             Err(e) => return browser_failed(e),
         },
         "user" => {
-            let path = p.path.unwrap_or_default();
+            let path = p.path.clone().unwrap_or_default();
             if !valid_path(&path) {
                 return err(StatusCode::BAD_REQUEST, "Ungültiger Uploader");
             }
@@ -309,8 +343,9 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
         _ => return err(StatusCode::BAD_REQUEST, "Unbekannte Liste"),
     };
     if p.kind.as_deref() == Some("user") {
-        if let Some(q) = p.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-            return search_user(&url, q, page).await;
+        let q = p.q.as_deref().map(str::trim).unwrap_or("");
+        if !q.is_empty() || !cats.is_empty() {
+            return search_user(&url, q, page, p.path.as_deref().unwrap_or(""), &cats).await;
         }
     }
     match browser::eval_in_page(&url, &format!("{PARSE_JS}{LIST_TAIL_JS}")).await {
