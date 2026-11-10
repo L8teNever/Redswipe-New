@@ -424,6 +424,47 @@
   canvas.avmark { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; z-index: 3; }
   html.vr #avPanel { width: 360px; left: 24px; top: 110px; }
   html.vr #avBar button { font-size: 18px; padding: 12px 18px; }
+
+  /* ---------- Pornhub-Look: gleiche Farben und Flächen wie die Pornhub-Seite ---------- */
+  :root {
+    --p: #ff9900; --on-p: #1a1100; --pc: #ff9900; --on-pc: #1a1100;
+    --sc: #262223; --on-sc: #f3eeee;
+    --surf: #121011; --surf-1: #1d1a1b; --surf-2: #262223; --surf-3: #332e2f;
+    --on-surf: #f3eeee; --on-surf-v: rgba(243,238,238,.66); --outline: rgba(255,255,255,.34); --outline-v: rgba(255,255,255,.1);
+    --glass: rgba(29,26,27,.94); --glass-bd: rgba(255,255,255,.08);
+    --blur: blur(16px);
+  }
+  .glass { background: var(--glass); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .sheet { background: rgba(0,0,0,.6); }
+  .sheet .panel { background: #1d1a1b; border: 1px solid rgba(255,255,255,.08); border-bottom: 0; box-shadow: 0 -8px 32px rgba(0,0,0,.5);
+    backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: 20px 20px 0 0; }
+  @media (min-width: 720px) { .sheet .panel { border-radius: 20px; border-bottom: 1px solid rgba(255,255,255,.08); } }
+  .handle { background: rgba(255,255,255,.3); }
+  .shead { background: linear-gradient(#1d1a1b 70%, rgba(29,26,27,0)); border-bottom: 0; }
+  .shead h2 { font-weight: 700; font-size: 20px; letter-spacing: 0; }
+  .shead .ib { background: #262223; }
+  .shead .ib:hover { background: rgba(255,255,255,.14); }
+  .sect { color: var(--p); font-size: 12px; letter-spacing: .6px; }
+  .card { background: #262223; border: 1px solid rgba(255,255,255,.06); border-radius: 16px; }
+  .btn { font-weight: 600; }
+  .btn.tonal { background: #262223; color: #f3eeee; }
+  .btn.tonal:hover { background: #332e2f; }
+  .seg { background: #121011; border: 1px solid rgba(255,255,255,.08); }
+  .seg button[aria-checked="true"] { background: var(--p); color: var(--on-p); }
+  .tf { background: #121011; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; }
+  .chipbtn { background: #262223; border: 1px solid rgba(255,255,255,.08); border-radius: 18px; }
+  .chipbtn:hover { background: #332e2f; }
+  .stepper { background: #121011; }
+  input.sw { background: #332e2f; }
+  input.sw:checked::before { background: #1a1100; }
+  #moreMenu { border-radius: 16px; }
+  #moreMenu .mi { border-radius: 12px; }
+  #moreMenu .mi:hover { background: rgba(255,255,255,.08); }
+  #moreMenu .mh { color: var(--p); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--p); background-clip: padding-box; }
+  * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
 </style>
 </head>
 <body>
