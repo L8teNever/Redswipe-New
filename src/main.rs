@@ -21,11 +21,13 @@ mod browser;
 mod login;
 pub mod nipples;
 mod optimize;
+mod ph;
 mod pool;
 mod redgifs;
 mod scan;
 mod taste;
 mod vpn;
+mod vscan;
 
 // Reddit antwortet auf unbekannte Clients oft mit 403/429, daher ein Browser-User-Agent.
 const DEFAULT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -82,6 +84,8 @@ pub struct Post {
     vote: &'static str,
     /// Herkunft: "reddit" oder "redgifs" (Nischen-Clips im Vorrat).
     origin: &'static str,
+    /// Weitere Rohdaten (Alter, Verhältnis, Dauer, Domain, Aufrufe ...) für den Geschmacks-Algorithmus.
+    extra: serde_json::Value,
     media: Vec<Media>,
 }
 
@@ -123,7 +127,16 @@ async fn main() {
     pool::start(state.clone());
 
     let index = format!("{static_dir}/index.html");
+    let ph_page = format!("{static_dir}/ph.html");
+    let no_cache = |f: &str| SetResponseHeader::if_not_present(ServeFile::new(f), header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     let app = Router::new()
+        // Startseite ist die Pornhub-Seite, Redswipe läuft dort als Reiter „Shorts“ (eingebettet über /shorts)
+        .route_service("/", no_cache(&ph_page))
+        .route_service("/shorts", no_cache(&ph_page))
+        .route_service("/abos", no_cache(&ph_page))
+        .route_service("/favoriten", no_cache(&ph_page))
+        .route_service("/suche", no_cache(&ph_page))
+        .route_service("/redswipe", no_cache(&index))
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/feed", get(feed))
         .route("/api/media", get(media))
@@ -145,10 +158,21 @@ async fn main() {
         .route("/api/pool/source", post(pool::set_source).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/api/vote", post(actions::vote).layer(DefaultBodyLimit::max(1024)))
         .route("/api/follow", post(actions::follow).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/following", get(actions::following))
+        .route("/api/ph/list", get(ph::list))
+        .route("/api/ph/video", get(ph::video))
+        .route("/api/ph/media", get(ph::media))
+        .route("/api/ph/state", get(ph::state))
+        .route("/api/ph/people", get(ph::people))
+        .route("/api/ph/cats", get(ph::cats))
+        .route("/api/ph/act", post(ph::act).layer(DefaultBodyLimit::max(1024)))
         .route(
             "/api/login",
             get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),
         )
+        .route("/api/vscan", get(vscan::get).put(vscan::put).delete(vscan::del).layer(DefaultBodyLimit::max(48 * 1024 * 1024)))
+        .route("/api/vscan/meta", axum::routing::put(vscan::put_meta).layer(DefaultBodyLimit::max(512 * 1024)))
+        .route("/api/vscan/list", get(vscan::list))
         .route("/api/vpn", get(vpn::status).post(vpn::upload).layer(DefaultBodyLimit::max(16 * 1024)))
         .fallback_service(SetResponseHeader::if_not_present(
             ServeDir::new(&static_dir).fallback(ServeFile::new(index)),
@@ -170,6 +194,9 @@ pub fn err(code: StatusCode, msg: impl Into<String>) -> Response {
 }
 
 async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Response {
+    if p.q.as_deref().map(str::trim) == Some("likes") {
+        return likes_feed(&st, p.after).await;
+    }
     let Some(source) = parse_source(p.q.as_deref().unwrap_or("")) else {
         return err(
             StatusCode::BAD_REQUEST,
@@ -199,6 +226,42 @@ async fn feed(State(st): State<AppState>, Query(p): Query<FeedQuery>) -> Respons
             scan::enqueue_posts(&st, &posts);
             Json(FeedResponse { posts, after }).into_response()
         }
+        Err((code, m)) => err(code, m),
+    }
+}
+
+/// Name des eingeloggten Reddit-Kontos (einmal über den Browser gelesen).
+static ME: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+
+/// „Meine Likes“: die hochgevoteten Beiträge des eingeloggten Kontos, ohne „schon gesehen“-Filter.
+async fn likes_feed(st: &AppState, after: Option<String>) -> Response {
+    if !browser::configured() {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "Für Likes muss der Browser auf dem Server eingerichtet sein.");
+    }
+    let after = after.filter(|a| !a.is_empty());
+    if let Some(a) = &after {
+        if !a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return err(StatusCode::BAD_REQUEST, "Ungültiger Seiten-Cursor");
+        }
+    }
+    let me = ME
+        .get_or_try_init(|| async {
+            let text = browser::fetch_text("https://www.reddit.com/api/me.json").await.map_err(|_| ())?;
+            let v: Value = serde_json::from_str(&text).map_err(|_| ())?;
+            let name = v["data"]["name"].as_str().or_else(|| v["name"].as_str()).unwrap_or("");
+            let ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            if ok { Ok(name.to_string()) } else { Err(()) }
+        })
+        .await;
+    let Ok(me) = me else {
+        return err(StatusCode::BAD_GATEWAY, "Reddit-Konto nicht erkannt. Ist der Browser auf dem Server bei Reddit eingeloggt?");
+    };
+    let mut url = format!("https://www.reddit.com/user/{me}/upvoted.json?limit=25&raw_json=1");
+    if let Some(a) = &after {
+        url.push_str(&format!("&after={a}"));
+    }
+    match fetch_listing(st, &url).await {
+        Ok((posts, after)) => Json(FeedResponse { posts, after }).into_response(),
         Err((code, m)) => err(code, m),
     }
 }
@@ -469,6 +532,11 @@ fn to_post(d: &Value) -> Option<Post> {
             None => "none",
         },
         origin: "reddit",
+        extra: serde_json::json!({
+            "created": d["created_utc"], "ratio": d["upvote_ratio"], "domain": d["domain"],
+            "awards": d["total_awards_received"], "hint": d["post_hint"], "xp": d["num_crossposts"],
+            "dur": d["media"]["reddit_video"]["duration"], "gallery": d["is_gallery"], "spoiler": d["spoiler"],
+        }),
         media,
     })
 }

@@ -338,6 +338,18 @@ fn maintain(st: &AppState, requeue: bool) {
         if s.posts.len() != before {
             s.dirty = true;
         }
+        // Genug fertige Videos: Rest des Rückstaus verwerfen und laufende Scans abbrechen.
+        let ready = s.posts.values().filter(|e| e.feats.is_some()).count();
+        if ready >= TARGET_READY {
+            let drop: Vec<String> = s.posts.iter().filter(|(_, e)| e.feats.is_none() && !e.dead).map(|(k, _)| k.clone()).collect();
+            for id in &drop {
+                s.posts.remove(id);
+                scan::cancel_post(id);
+            }
+            if !drop.is_empty() {
+                s.dirty = true;
+            }
+        }
         s.posts.iter().filter(|(_, e)| e.feats.is_none() && !e.dead).map(|(k, e)| (k.clone(), e.post.clone())).collect()
     };
     let mut results: Vec<(String, Option<taste::Feats>)> = Vec::new();
@@ -354,6 +366,14 @@ fn maintain(st: &AppState, requeue: bool) {
                 prewarm_post(st, post);
             }
         }
+    }
+    // Alte Merkmale ohne Haltung/Bewegung/Herkunft schrittweise neu berechnen
+    let stale: Vec<(String, Value)> = {
+        let s = lock();
+        s.posts.iter().filter(|(_, e)| e.feats.as_ref().is_some_and(|f| !f.contains_key("fv:3"))).take(30).map(|(k, e)| (k.clone(), e.post.clone())).collect()
+    };
+    for (id, post) in &stale {
+        results.push((id.clone(), Some(taste::features_value(post))));
     }
     if !results.is_empty() {
         let mut s = lock();

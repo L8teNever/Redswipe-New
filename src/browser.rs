@@ -167,7 +167,7 @@ pub async fn eval_in_page(page_url: &str, expression: &str) -> Result<Value, Bro
         return Err(BrowserError::Unavailable("Browser hat keinen Tab geöffnet".into()));
     };
 
-    let result = timeout(Duration::from_secs(40), run_expression(&addr, &id, expression)).await;
+    let result = timeout(Duration::from_secs(40), run_expression(&addr, &id, expression, page_url)).await;
     let _ = http.get(format!("http://{addr}/json/close/{id}")).send().await;
     match result {
         Ok(r) => r,
@@ -199,7 +199,11 @@ async fn cdp_call(
     }
 }
 
-async fn run_expression(addr: &str, id: &str, expression: &str) -> Result<Value, BrowserError> {
+async fn run_expression(addr: &str, id: &str, expression: &str, page_url: &str) -> Result<Value, BrowserError> {
+    // Reddit wird wie bisher bis „complete“ abgewartet; andere Seiten (z. B. Pornhub mit viel Werbung)
+    // reichen, sobald das Dokument geparst ist.
+    let host = reqwest::Url::parse(page_url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string())).unwrap_or_default();
+    let is_reddit = host.ends_with("reddit.com");
     let (mut ws, _) = connect_async(format!("ws://{addr}/devtools/page/{id}"))
         .await
         .map_err(|e| BrowserError::Unavailable(format!("Browser-Steuerung nicht erreichbar: {e}")))?;
@@ -209,7 +213,8 @@ async fn run_expression(addr: &str, id: &str, expression: &str) -> Result<Value,
     let mut n = 1u64;
     loop {
         if started.elapsed() > Duration::from_secs(25) {
-            return Err(BrowserError::Failed("Reddit hat im Browser nicht rechtzeitig geladen".into()));
+            let site = if is_reddit { "Reddit" } else { "Die Seite" };
+            return Err(BrowserError::Failed(format!("{site} hat im Browser nicht rechtzeitig geladen")));
         }
         let r = cdp_call(
             &mut ws,
@@ -220,10 +225,14 @@ async fn run_expression(addr: &str, id: &str, expression: &str) -> Result<Value,
         .await?;
         n += 1;
         let s = r["result"]["result"]["value"].as_str().unwrap_or("");
-        if s.contains("/login") || s.contains("/account/") {
+        if is_reddit && (s.contains("/login") || s.contains("/account/")) {
             return Err(BrowserError::NeedsLogin("Reddit will einen Login".into()));
         }
-        if s.starts_with("https://") && s.contains("reddit.com") && s.ends_with("|complete") {
+        if is_reddit {
+            if s.starts_with("https://") && s.contains("reddit.com") && s.ends_with("|complete") {
+                break;
+            }
+        } else if s.starts_with("https://") && s.contains(&host) && (s.ends_with("|complete") || s.ends_with("|interactive")) {
             break;
         }
         sleep(Duration::from_millis(300)).await;

@@ -9,21 +9,26 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    f64::consts::PI,
     env, fs,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
 
-use axum::{Json, extract::DefaultBodyLimit, http::StatusCode, response::{IntoResponse, Response}};
+use axum::{Json, extract::{DefaultBodyLimit, State}, http::StatusCode, response::{IntoResponse, Response}};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::{err, scan};
+use crate::{AppState, err, scan};
 
 /// Temperatur: teilt die Summe der Gewichte, damit die Prozentwerte nicht sofort bei 0 und 100 kleben.
 const TEMP: f64 = 2.0;
 const MAX_TOKENS: usize = 24;
 const KEEP_IDS: usize = 800;
+/// Ähnlichkeits-Gedächtnis: so viele bewertete Beispiele (Bild/Video-Muster) werden gemerkt.
+const MEM_MAX: usize = 1200;
+/// Wie stark ähnliche Beispiele die Bewertung verschieben (in Gewichts-Einheiten vor TEMP).
+const KNN_GAIN: f64 = 4.0;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct Model {
@@ -36,6 +41,19 @@ struct Model {
     neg: u64,
     /// Beiträge, aus denen schon gelernt wurde ("<id>:<art>"), damit nichts doppelt zählt.
     seen: Vec<String>,
+    /// Muster bewerteter Beiträge (Pose, Bewegung, Aussehen, Quelle) für den Ähnlichkeitsvergleich.
+    #[serde(default)]
+    mem: Vec<Example>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Example {
+    id: String,
+    /// 1 = gefallen, 0 = nicht.
+    y: f64,
+    wt: f64,
+    f: Feats,
+    norm: f64,
 }
 
 fn path() -> PathBuf {
@@ -126,6 +144,14 @@ pub struct InPost {
     flair: String,
     #[serde(default)]
     text: String,
+    #[serde(default)]
+    permalink: String,
+    #[serde(default)]
+    extra: Value,
+    #[serde(default)]
+    score: i64,
+    #[serde(default)]
+    comments: i64,
     #[serde(default)]
     media: Vec<InMedia>,
 }
@@ -243,16 +269,203 @@ fn is_breast(label: &str) -> bool {
 }
 
 /// Merkmale aus einem Scan-Ergebnis (Bild oder Video). Werte liegen in 0..1.
-fn scan_feats(v: &Value, out: &mut Feats) {
+fn in_window(fr: &Value, upto: Option<f64>) -> bool {
+    upto.map_or(true, |u| num(&fr[0]).map_or(true, |t| t <= u))
+}
+
+/// Erkennungs-Anteile nur für die ersten `upto` Sekunden eines Videos (aus der Treffer-Zeitleiste).
+fn windowed_dets(v: &Value, upto: f64) -> Vec<(String, f64)> {
+    let names: Vec<&str> = v["names"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
+    let mut frames: f64 = 0.0;
+    let mut cnt: HashMap<&str, f64> = HashMap::new();
+    for fr in v["timeline"].as_array().into_iter().flatten().filter(|f| in_window(f, Some(upto))) {
+        frames += 1.0;
+        let mut here: HashSet<&str> = HashSet::new();
+        for r in fr.get(1).and_then(|x| x.as_array()).into_iter().flatten() {
+            let Some(a) = r.as_array() else { continue };
+            let (Some(i), Some(sc)) = (a.first().and_then(|x| x.as_u64()), a.get(1).and_then(|x| x.as_f64())) else { continue };
+            if sc >= 0.4 {
+                if let Some(n) = names.get(i as usize) {
+                    here.insert(n);
+                }
+            }
+        }
+        for n in here {
+            *cnt.entry(n).or_insert(0.0) += 1.0;
+        }
+    }
+    let pf = v["pose_timeline"].as_array().into_iter().flatten().filter(|f| in_window(f, Some(upto))).count() as f64;
+    let denom = frames.max(pf).max(1.0);
+    cnt.into_iter().map(|(k, c)| (k.to_string(), (c / denom).min(1.0))).collect()
+}
+
+/// Merkmale aus einem Scan-Ergebnis plus Haltungs- und Bewegungsmuster. `upto`: nur die ersten Sekunden eines Videos
+/// (was du bis zum Wegwischen wirklich gesehen hast).
+fn scan_feats(v: &Value, out: &mut Feats, upto: Option<f64>) {
+    scan_feats_base(v, out, upto);
     let w = num(&v["width"]).unwrap_or(1.0).max(1.0);
     let h = num(&v["height"]).unwrap_or(1.0).max(1.0);
     let video = v["kind"].as_str() == Some("video");
+    let mut frames: Vec<Frame> = Vec::new();
+    if video {
+        for fr in v["pose_timeline"].as_array().into_iter().flatten().filter(|f| in_window(f, upto)) {
+            let t = num(&fr[0]).unwrap_or(0.0);
+            if let Some(p) = fr.get(1).and_then(|x| x.as_array()).and_then(|a| a.first()) {
+                frames.push(pose_frame(p, t, w, h));
+            }
+        }
+    } else {
+        for p in v["poses"].as_array().into_iter().flatten() {
+            frames.push(pose_frame(p, 0.0, w, h));
+        }
+    }
+    sig_feats(&frames, video, out);
+}
+
+// ---------- Haltung & Bewegung als reines Muster (ohne Namen wie "Hand hoch") ----------
+
+const LIMBS: [(usize, usize); 8] = [(11, 13), (13, 15), (12, 14), (14, 16), (23, 25), (25, 27), (24, 26), (26, 28)];
+const LIMB_NAMES: [&str; 9] = ["ual", "fal", "uar", "far", "thl", "shl", "thr", "shr", "to"];
+
+struct Frame {
+    t: f64,
+    /// Richtung jedes Gliedes (Oberarm/Unterarm links+rechts, Ober-/Unterschenkel, Rumpf) in Radiant.
+    ang: [Option<f64>; 9],
+    hip: Option<(f64, f64)>,
+    torso: f64,
+}
+
+fn vis_pt(pose: &Value, i: usize) -> Option<(f64, f64)> {
+    let p = pt(pose, i)?;
+    (p.2 >= 0.4).then_some((p.0, p.1))
+}
+
+fn pose_frame(pose: &Value, t: f64, w: f64, h: f64) -> Frame {
+    let mut ang: [Option<f64>; 9] = [None; 9];
+    for (i, (a, b)) in LIMBS.iter().enumerate() {
+        if let (Some(p), Some(q)) = (vis_pt(pose, *a), vis_pt(pose, *b)) {
+            ang[i] = Some(((q.1 - p.1) * h).atan2((q.0 - p.0) * w));
+        }
+    }
+    let mid = |a: usize, b: usize| -> Option<(f64, f64)> {
+        let p = vis_pt(pose, a)?;
+        let q = vis_pt(pose, b)?;
+        Some(((p.0 + q.0) / 2.0 * w, (p.1 + q.1) / 2.0 * h))
+    };
+    let sh = mid(11, 12);
+    let hip = mid(23, 24);
+    let mut torso = 0.0;
+    if let (Some(s), Some(p)) = (sh, hip) {
+        ang[8] = Some((s.1 - p.1).atan2(s.0 - p.0));
+        torso = (s.0 - p.0).hypot(s.1 - p.1);
+    }
+    Frame { t, ang, hip, torso }
+}
+
+fn bin8(a: f64) -> usize {
+    (((a + PI) / (2.0 * PI) * 8.0).floor() as usize) % 8
+}
+
+fn wrap(d: f64) -> f64 {
+    let mut d = d;
+    while d > PI {
+        d -= 2.0 * PI;
+    }
+    while d < -PI {
+        d += 2.0 * PI;
+    }
+    d
+}
+
+fn sd(v: &[f64]) -> f64 {
+    let m = v.iter().sum::<f64>() / v.len() as f64;
+    (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+}
+
+/// Haltungs-Muster (Anteil der Frames mit dieser Glied-Richtung) und Bewegungs-Muster (wie stark, wie rhythmisch).
+fn sig_feats(frames: &[Frame], motion: bool, out: &mut Feats) {
+    let n = frames.len() as f64;
+    if n < 1.0 {
+        return;
+    }
+    let mut tok: HashMap<String, f64> = HashMap::new();
+    for f in frames {
+        let mut set: HashSet<String> = HashSet::new();
+        for (i, a) in f.ang.iter().enumerate() {
+            if let Some(a) = a {
+                set.insert(format!("pz:{}:{}", LIMB_NAMES[i], bin8(*a)));
+            }
+        }
+        for (pre, lo, hi) in [("pa", 0usize, 4usize), ("pl", 4, 8)] {
+            let bins: Vec<usize> = f.ang[lo..hi].iter().filter_map(|a| a.map(bin8)).collect();
+            if bins.len() == 4 {
+                set.insert(format!("{pre}:{}", bins.iter().map(|b| b.to_string()).collect::<String>()));
+            }
+        }
+        for s in set {
+            *tok.entry(s).or_insert(0.0) += 1.0 / n;
+        }
+    }
+    out.extend(tok);
+    if !motion || frames.len() < 4 {
+        return;
+    }
+    let (mut changes, mut pairs) = (0.0, 0.0);
+    let mut acts: Vec<f64> = Vec::new();
+    for i in 0..8 {
+        let (mut sum, mut cnt, mut last) = (0.0, 0.0, 0.0f64);
+        for p in frames.windows(2) {
+            let dt = p[1].t - p[0].t;
+            let (Some(a0), Some(a1)) = (p[0].ang[i], p[1].ang[i]) else { continue };
+            if dt <= 0.0 || dt > 1.0 {
+                continue;
+            }
+            let d = wrap(a1 - a0) / dt;
+            sum += d.abs();
+            cnt += 1.0;
+            if d.abs() > 0.5 {
+                let sg = d.signum();
+                if last != 0.0 {
+                    pairs += 1.0;
+                    if sg != last {
+                        changes += 1.0;
+                    }
+                }
+                last = sg;
+            }
+        }
+        if cnt >= 3.0 {
+            let a = (sum / cnt / 2.5).clamp(0.0, 1.0);
+            out.insert(format!("mv:{}", LIMB_NAMES[i]), a);
+            acts.push(a);
+        }
+    }
+    if !acts.is_empty() {
+        out.insert("mv:energy".into(), acts.iter().sum::<f64>() / acts.len() as f64);
+    }
+    if pairs >= 3.0 {
+        out.insert("mv:osc".into(), changes / pairs);
+    }
+    let hp: Vec<(f64, f64)> = frames.iter().filter(|f| f.torso > 10.0).filter_map(|f| f.hip.map(|h| (h.0 / f.torso, h.1 / f.torso))).collect();
+    if hp.len() >= 4 {
+        let xs: Vec<f64> = hp.iter().map(|p| p.0).collect();
+        let ys: Vec<f64> = hp.iter().map(|p| p.1).collect();
+        out.insert("mv:sway".into(), (sd(&xs) / 0.15).clamp(0.0, 1.0));
+        out.insert("mv:bob".into(), (sd(&ys) / 0.15).clamp(0.0, 1.0));
+    }
+}
+
+fn scan_feats_base(v: &Value, out: &mut Feats, upto: Option<f64>) {
+    let w = num(&v["width"]).unwrap_or(1.0).max(1.0);
+    let h = num(&v["height"]).unwrap_or(1.0).max(1.0);
+    let video = v["kind"].as_str() == Some("video");
+    let in_win = |fr: &Value| in_window(fr, upto);
 
     // Personen-Merkmale: Mittelwert über alle Beobachtungen (Personen bzw. Videoframes)
     let mut obs: Vec<Vec<String>> = Vec::new();
     let mut cont: Vec<(String, f64)> = Vec::new();
     if video {
-        for fr in v["appearance_timeline"].as_array().into_iter().flatten() {
+        for fr in v["appearance_timeline"].as_array().into_iter().flatten().filter(|f| in_win(f)) {
             for a in fr.get(1).and_then(|x| x.as_array()).into_iter().flatten() {
                 let mut f = Vec::new();
                 person_feats(a, &mut f);
@@ -290,12 +503,21 @@ fn scan_feats(v: &Value, out: &mut Feats) {
     }
 
     // Erkannte Körperteile
-    for d in v["detections"].as_array().into_iter().flatten() {
-        let (Some(l), Some(sc)) = (d["label"].as_str(), num(&d["score"])) else { continue };
-        if sc < 0.4 {
-            continue;
+    let mut dets: Vec<(String, f64)> = Vec::new();
+    match upto {
+        Some(u) if video => dets = windowed_dets(v, u),
+        _ => {
+            for d in v["detections"].as_array().into_iter().flatten() {
+                let (Some(l), Some(sc)) = (d["label"].as_str(), num(&d["score"])) else { continue };
+                if sc < 0.4 {
+                    continue;
+                }
+                let val = if video { num(&d["share"]).unwrap_or(0.0).clamp(0.0, 1.0) } else { 1.0 };
+                dets.push((l.to_string(), val));
+            }
         }
-        let val = if video { num(&d["share"]).unwrap_or(0.0).clamp(0.0, 1.0) } else { 1.0 };
+    }
+    for (l, val) in dets {
         if val >= 0.05 {
             let e = out.entry(format!("det:{l}")).or_insert(0.0);
             *e = e.max(val);
@@ -313,19 +535,19 @@ fn scan_feats(v: &Value, out: &mut Feats) {
     let (mut chest_n, mut body_n, mut frames) = (0.0, 0.0, 0.0);
     if video {
         let mut hands_at: HashMap<i64, &Value> = HashMap::new();
-        for fr in v["hand_timeline"].as_array().into_iter().flatten() {
+        for fr in v["hand_timeline"].as_array().into_iter().flatten().filter(|f| in_win(f)) {
             if let (Some(t), Some(hs)) = (num(&fr[0]), fr.get(1)) {
                 hands_at.insert((t * 1000.0).round() as i64, hs);
             }
         }
         let names: Vec<&str> = v["names"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
         let mut rows_at: HashMap<i64, &Value> = HashMap::new();
-        for fr in v["timeline"].as_array().into_iter().flatten() {
+        for fr in v["timeline"].as_array().into_iter().flatten().filter(|f| in_win(f)) {
             if let (Some(t), Some(rows)) = (num(&fr[0]), fr.get(1)) {
                 rows_at.insert((t * 1000.0).round() as i64, rows);
             }
         }
-        for fr in v["pose_timeline"].as_array().into_iter().flatten() {
+        for fr in v["pose_timeline"].as_array().into_iter().flatten().filter(|f| in_win(f)) {
             let (Some(t), Some(people)) = (num(&fr[0]), fr.get(1).and_then(|x| x.as_array())) else { continue };
             frames += 1.0;
             let key = (t * 1000.0).round() as i64;
@@ -423,11 +645,68 @@ fn text_feats(p: &InPost, out: &mut Feats) {
     if !p.author.is_empty() && p.author != "[deleted]" {
         out.insert(format!("au:{}", p.author.to_lowercase()), 0.7);
     }
+    extra_feats(&p.extra, out);
+    // Herkunft: RedGIFs-Nische und Tags bzw. Reddit-Flair
+    if let Some(n) = p.subreddit.strip_prefix("RedGIFs #") {
+        out.insert(format!("ni:{}", n.to_lowercase()), 1.0);
+        for t in p.flair.split(',') {
+            let t = t.trim().to_lowercase();
+            if !t.is_empty() {
+                out.insert(format!("tg:{t}"), 0.5);
+            }
+        }
+    } else if !p.flair.trim().is_empty() {
+        out.insert(format!("fl:{}", p.flair.trim().to_lowercase().chars().take(40).collect::<String>()), 0.6);
+    }
+    let bucket = |n: i64| -> usize { (n.max(1) as f64).log10().floor() as usize };
+    if p.score > 0 {
+        out.insert(format!("sc:{}", bucket(p.score)), 0.5);
+    }
+    if p.comments > 0 {
+        out.insert(format!("cm:{}", bucket(p.comments)), 0.5);
+    }
+}
+
+/// Rohdaten des Beitrags (Alter, Verhältnis, Dauer, Domain, Aufrufe, Nischen ...) als Merkmale.
+fn extra_feats(ex: &Value, out: &mut Feats) {
+    if ex.is_null() {
+        return;
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+    if let Some(c) = num(&ex["created"]).filter(|c| *c > 1e9) {
+        let hours = ((now - c) / 3600.0).max(1.0);
+        out.insert(format!("ag:{}", ((hours.log2() / 3.0).floor() as i64).clamp(0, 5)), 0.4);
+    }
+    if let Some(r) = num(&ex["ratio"]) {
+        out.insert("ur".into(), ((r - 0.5) * 2.0).clamp(0.0, 1.0));
+    }
+    if let Some(d) = ex["domain"].as_str().filter(|d| !d.is_empty()) {
+        out.insert(format!("dm:{}", d.to_lowercase()), 0.3);
+    }
+    if let Some(d) = num(&ex["dur"]).filter(|d| *d > 0.0) {
+        let b = if d < 8.0 { "kurz" } else if d < 15.0 { "15" } else if d < 30.0 { "30" } else if d < 60.0 { "60" } else { "lang" };
+        out.insert(format!("du:{b}"), 0.6);
+    }
+    if let Some(v) = num(&ex["views"]).filter(|v| *v >= 1.0) {
+        out.insert(format!("vw:{}", v.log10().floor() as i64), 0.4);
+    }
+    if let Some(a) = num(&ex["awards"]).filter(|a| *a >= 1.0) {
+        out.insert("aw".into(), (a.log10() + 0.3).clamp(0.0, 1.0));
+    }
+    for (k, name) in [("audio", "snd"), ("hd", "hd"), ("gallery", "gal"), ("spoiler", "spo")] {
+        if ex[k].as_bool() == Some(true) {
+            out.insert(name.into(), 0.5);
+        }
+    }
+    for n in ex["niches"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).take(6) {
+        out.entry(format!("ni:{}", n.to_lowercase())).or_insert(0.5);
+    }
 }
 
 /// Alle Merkmale eines Beitrags. Zweiter Wert: liegt mindestens ein fertiger Scan vor?
-fn features(p: &InPost) -> (Feats, bool) {
+fn features(p: &InPost, upto: Option<f64>) -> (Feats, bool) {
     let mut out = Feats::new();
+    out.insert("fv:3".into(), 0.0);
     text_feats(p, &mut out);
     let mut scans: Vec<Feats> = Vec::new();
     let mut scannable = 0;
@@ -443,7 +722,7 @@ fn features(p: &InPost) -> (Feats, bool) {
             continue;
         }
         let mut f = Feats::new();
-        scan_feats(&v, &mut f);
+        scan_feats(&v, &mut f, upto);
         scans.push(f);
     }
     let ready = scannable == 0 || !scans.is_empty();
@@ -461,13 +740,71 @@ fn features(p: &InPost) -> (Feats, bool) {
 /// Merkmale eines Beitrags im Feed-Format (für den Vorrat; wird einmal berechnet und gemerkt).
 pub fn features_value(post: &Value) -> Feats {
     let p: InPost = serde_json::from_value(post.clone()).unwrap_or_default();
-    features(&p).0
+    features(&p, None).0
 }
 
 /// Bewertung vieler Merkmals-Sätze auf einmal: (Prozent, Gründe).
 pub fn score_feats(list: &[&Feats]) -> Vec<(f64, Vec<Value>)> {
     let m = model().lock().unwrap_or_else(|e| e.into_inner()).clone();
-    list.iter().map(|f| ((sigmoid(z_of(&m, f) / TEMP) * 100.0).round(), explain(&m, f))).collect()
+    list.iter().map(|f| rate(&m, f)).collect()
+}
+
+fn knn_ok(k: &str) -> bool {
+    !["w:", "tg:", "sc:", "cm:", "fl:", "tage:", "persons:", "fv:"].iter().any(|p| k.starts_with(p))
+}
+
+fn knn_vec(f: &Feats) -> Feats {
+    f.iter().filter(|(k, v)| knn_ok(k) && **v > 0.0).map(|(k, v)| (k.clone(), *v)).collect()
+}
+
+fn norm(f: &Feats) -> f64 {
+    f.values().map(|v| v * v).sum::<f64>().sqrt()
+}
+
+/// Ähnlichkeit zu früher bewerteten Beiträgen: (Richtung -1..1, Sicherheit 0..1).
+fn knn(m: &Model, f: &Feats) -> (f64, f64) {
+    if m.mem.is_empty() {
+        return (0.0, 0.0);
+    }
+    let q = knn_vec(f);
+    let qn = norm(&q);
+    if qn <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let mut sims: Vec<(f64, &Example)> = Vec::new();
+    for e in &m.mem {
+        if e.norm <= 0.0 {
+            continue;
+        }
+        let (a, b) = if q.len() <= e.f.len() { (&q, &e.f) } else { (&e.f, &q) };
+        let dot: f64 = a.iter().map(|(k, v)| b.get(k).map_or(0.0, |x| x * v)).sum();
+        let s = dot / (qn * e.norm);
+        if s >= 0.6 {
+            sims.push((s, e));
+        }
+    }
+    sims.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    sims.truncate(8);
+    let (mut sn, mut den, mut conf) = (0.0, 0.0, 0.0);
+    for (s, e) in &sims {
+        let a = s.powi(3) * e.wt;
+        sn += a * if e.y >= 0.5 { 1.0 } else { -1.0 };
+        den += a;
+        conf += s.powi(3) * e.wt.min(1.0);
+    }
+    if den <= 0.0 { (0.0, 0.0) } else { (sn / den, (conf / 2.0).min(1.0)) }
+}
+
+/// Prozent und Gründe: gelernte Gewichte plus Ähnlichkeit zu früheren Beiträgen.
+fn rate(m: &Model, f: &Feats) -> (f64, Vec<Value>) {
+    let (s, c) = knn(m, f);
+    let z = z_of(m, f) + KNN_GAIN * s * c;
+    let mut why = explain(m, f);
+    if c >= 0.3 && s.abs() >= 0.2 {
+        why.insert(0, json!({ "t": if s > 0.0 { "Ähnlich zu Gelikedem" } else { "Ähnlich zu Abgelehntem" }, "up": s > 0.0 }));
+        why.truncate(4);
+    }
+    ((sigmoid(z / TEMP) * 100.0).round(), why)
 }
 
 // ---------- Modell ----------
@@ -495,6 +832,12 @@ fn nice(k: &str) -> String {
         "persons" => format!("Personen {v}"),
         "w" => format!("„{v}“"),
         "sr" => format!("r/{v}"),
+        "ni" => format!("Nische {v}"),
+        "tg" => format!("Tag {v}"),
+        "fl" => format!("Flair {v}"),
+        "pz" | "pa" | "pl" => "Haltung".into(),
+        "mv" => format!("Bewegung {v}"),
+        "sc" | "cm" => "Beliebtheit".into(),
         "au" => format!("u/{v}"),
         _ => k.to_string(),
     }
@@ -549,9 +892,9 @@ pub async fn score(Json(r): Json<ScoreReq>) -> Response {
             .iter()
             .take(12)
             .map(|p| {
-                let (f, ready) = features(p);
-                let pct = (sigmoid(z_of(&m, &f) / TEMP) * 100.0).round();
-                json!({ "id": p.id, "pct": pct, "ready": ready, "why": explain(&m, &f) })
+                let (f, ready) = features(p, None);
+                let (pct, why) = rate(&m, &f);
+                json!({ "id": p.id, "pct": pct, "ready": ready, "why": why })
             })
             .collect::<Vec<_>>()
     })
@@ -569,6 +912,9 @@ pub struct EventReq {
     vote: String,
     #[serde(default)]
     dwell_ms: f64,
+    /// Umstände: Modus, Uhrzeit, Wochentag, 2×-Tempo benutzt ...
+    #[serde(default)]
+    ctx: Value,
     /// Länge des Videos in ms (0 bei Bildern); wird mitgeschickt, zählt aktuell nicht.
     #[serde(default)]
     #[allow(dead_code)]
@@ -576,7 +922,7 @@ pub struct EventReq {
 }
 
 /// Aus einem Ereignis lernen. Antwort: {learned: bool}
-pub async fn event(Json(e): Json<EventReq>) -> Response {
+pub async fn event(State(st): State<AppState>, Json(e): Json<EventReq>) -> Response {
     if e.post.id.is_empty() || e.post.id.len() > 64 {
         return err(StatusCode::BAD_REQUEST, "Beitrag fehlt");
     }
@@ -586,14 +932,20 @@ pub async fn event(Json(e): Json<EventReq>) -> Response {
         // Like: je länger angeschaut, desto stärker. Dislike: schnell weg = deutlich.
         ("vote", "up") => Some((1.0, 1.0 + 0.5 * (dwell / 30_000.0).min(1.0))),
         ("vote", "down") => Some((0.0, if dwell < 3000.0 { 1.5 } else { 1.0 })),
+        // Mehrfach angesehen ohne Vote (Video lief mindestens zweimal): schwach positiv
+        ("view", _) if e.media_ms > 0.0 && dwell >= 1.8 * e.media_ms => Some((1.0, 0.25)),
         // Weitergewischt ohne Vote: leicht negativ (schwächer als ein Dislike), schnell weg etwas deutlicher.
         ("view", _) => Some((0.0, if dwell < 1500.0 { 0.45 } else { 0.3 })),
         _ => None,
     };
     let Some((y, wgt)) = target else { return Json(json!({ "learned": false })).into_response() };
+    // Nur der gesehene Teil eines Videos zählt (z. B. nach 5 s weitergewischt: nur die ersten 5 s)
+    let upto = (e.media_ms > 0.0 && dwell < e.media_ms - 1500.0).then(|| dwell / 1000.0 + 0.7);
+    let (kind, vote, media_ms, ctx) = (e.kind.clone(), e.vote.clone(), e.media_ms, e.ctx.clone());
+    let comments: Vec<String> = if e.kind == "vote" { top_comments(&st, &e.post.permalink).await } else { Vec::new() };
     let id_key = format!("{}:{}", e.post.id, if e.kind == "vote" { e.vote.as_str() } else { "view" });
     let learned = tokio::task::spawn_blocking(move || {
-        let (f, _) = features(&e.post);
+        let (f, _) = features(&e.post, upto);
         let mut m = model().lock().unwrap_or_else(|x| x.into_inner());
         if m.seen.contains(&id_key) {
             return false;
@@ -604,12 +956,63 @@ pub async fn event(Json(e): Json<EventReq>) -> Response {
             m.seen.drain(..cut);
         }
         learn(&mut m, &f, y, wgt);
+        // Muster für den Ähnlichkeitsvergleich merken (Votes und schnelles Wegwischen)
+        if kind == "vote" || wgt >= 0.45 {
+            let pid = e.post.id.clone();
+            m.mem.retain(|x| x.id != pid);
+            let kf = knn_vec(&f);
+            let n = norm(&kf);
+            if n > 0.0 {
+                m.mem.push(Example { id: pid, y, wt: wgt, f: kf, norm: n });
+            }
+            if m.mem.len() > MEM_MAX {
+                let cut = m.mem.len() - MEM_MAX;
+                m.mem.drain(..cut);
+            }
+        }
         save(&m);
+        log_event(json!({
+            "t": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+            "id": e.post.id, "kind": kind, "vote": vote, "dwell_ms": dwell, "media_ms": media_ms, "upto": upto,
+            "sr": e.post.subreddit, "au": e.post.author, "title": e.post.title, "y": y, "wt": wgt, "f": f, "ctx": ctx, "comments": comments, "permalink": e.post.permalink,
+            "flair": e.post.flair, "text": e.post.text, "extra": e.post.extra, "score": e.post.score, "n_comments": e.post.comments,
+        }));
         true
     })
     .await
     .unwrap_or(false);
     Json(json!({ "learned": learned })).into_response()
+}
+
+/// Die ersten Top-Kommentare eines Reddit-Beitrags (nur für das Roh-Log, höchstens 6 s Wartezeit).
+async fn top_comments(st: &AppState, permalink: &str) -> Vec<String> {
+    if !permalink.contains("reddit.com/r/") {
+        return Vec::new();
+    }
+    let url = format!("{}.json?limit=6&sort=top&raw_json=1", permalink.trim_end_matches('/'));
+    let Ok(resp) = st.client.get(url).timeout(std::time::Duration::from_secs(6)).send().await else { return Vec::new() };
+    let Ok(v) = resp.json::<Value>().await else { return Vec::new() };
+    v[1]["data"]["children"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["data"]["stickied"].as_bool() != Some(true))
+        .filter_map(|c| c["data"]["body"].as_str())
+        .take(4)
+        .map(|b| b.chars().take(240).collect::<String>())
+        .collect()
+}
+
+/// Jedes Ereignis samt aller Merkmale dauerhaft als Zeile ablegen (Rohdaten für späteres Nachtrainieren).
+fn log_event(v: Value) {
+    use std::io::Write;
+    let p = path().with_file_name("taste_log.jsonl");
+    if fs::metadata(&p).map_or(false, |m| m.len() > 30_000_000) {
+        let _ = fs::rename(&p, p.with_extension("jsonl.1"));
+    }
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&p) {
+        let _ = writeln!(f, "{v}");
+    }
 }
 
 /// Was hat das Modell gelernt? Die stärksten Vorlieben und Abneigungen.

@@ -98,3 +98,24 @@ if(r.ok)return{{ok:true}};const t=(await r.text()).slice(0,160);return{{ok:false
     );
     run("https://old.reddit.com/", expr).await
 }
+
+/// Liste der Reddit-Nutzer, denen das eingeloggte Konto folgt (Abos der Profil-Subreddits „u_…“).
+pub async fn following(headers: HeaderMap) -> Response {
+    if let Err(r) = authorized(&headers) {
+        return r;
+    }
+    if !browser::configured() {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "Der Browser ist nicht eingerichtet.");
+    }
+    let expr = r#"(async()=>{try{const out=[];let after='';for(let i=0;i<20;i++){
+const r=await fetch('/subreddits/mine/subscriber.json?limit=100&raw_json=1'+(after?'&after='+after:''),{credentials:'include'});
+if(!r.ok)return{ok:false,error:'Reddit antwortet mit HTTP '+r.status};
+const d=await r.json();for(const c of (d.data&&d.data.children)||[]){const s=c.data||{};if(s.subreddit_type==='user'||/^u_/i.test(s.display_name||''))out.push(String(s.display_name||'').replace(/^u_/i,''));}
+after=d.data&&d.data.after;if(!after)break;}
+return{ok:true,users:out}}catch(e){return{ok:false,error:String(e)}}})()"#;
+    match browser::eval_in_page("https://old.reddit.com/", expr).await {
+        Ok(v) if v["ok"].as_bool() == Some(true) => Json(json!({ "users": v["users"] })).into_response(),
+        Ok(v) => err(StatusCode::BAD_GATEWAY, v["error"].as_str().unwrap_or("Reddit-Liste nicht lesbar").to_string()),
+        Err(e) => failed(e),
+    }
+}

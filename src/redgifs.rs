@@ -128,6 +128,10 @@ fn to_post(g: &Value, niche: &str) -> Option<Post> {
         text: String::new(),
         vote: "none",
         origin: "redgifs",
+        extra: json!({
+            "created": g["createDate"], "views": g["views"], "dur": g["duration"], "audio": g["hasAudio"],
+            "hd": g["hd"], "niches": g["niches"],
+        }),
         media: vec![Media {
             kind: "video",
             url: proxy(sd),

@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#120f0e">
 <title>Redswipe</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/","@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.min.js"}}</script>
 <style>
   /* ---------- Material 3 Expressive (dunkel) mit Glas-Flächen ---------- */
   :root {
@@ -59,6 +60,18 @@
   .group { display: flex; gap: 2px; padding: 3px; border-radius: 27px; flex: none; }
   .group .ib { width: 44px; height: 44px; border-radius: 22px; }
   .group .ib:active { border-radius: 12px; }
+  #moreBtn[aria-expanded="true"] { background: rgba(255,255,255,.14); }
+  #moreMenu { position: absolute; top: 56px; right: 0; min-width: 250px; padding: 6px; border-radius: 22px; display: flex; flex-direction: column; gap: 2px;
+    transform-origin: top right; animation: menuIn .18s var(--ease); }
+  #moreMenu[hidden] { display: none; }
+  @keyframes menuIn { from { opacity: 0; transform: scale(.94); } }
+  #moreMenu .mh { font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: rgba(255,255,255,.55); padding: 8px 12px 4px; }
+  #moreMenu .mi { width: 100%; height: 44px; border-radius: 14px; display: flex; align-items: center; gap: 12px; padding: 0 12px; justify-content: flex-start; font-size: 14px; font-weight: 500; text-align: left; }
+  #moreMenu .mi:hover { background: rgba(255,255,255,.08); }
+  #moreMenu .mi:active { transform: scale(.97); border-radius: 14px; }
+  #moreMenu .mi.on { background: var(--pc); color: var(--on-pc); }
+  #moreMenu kbd { margin-left: auto; font: inherit; font-size: 11px; opacity: .6; border: 1px solid currentColor; border-radius: 5px; padding: 0 5px; }
+  html.vr #moreMenu .mi { height: 64px; font-size: 18px; }
 
   /* ---------- Feed ---------- */
   #feed { position: fixed; inset: 0; height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory;
@@ -216,6 +229,9 @@
   .following-badge.rg { color: #ff80ab; }
   .following-badge.rd { color: #ff8a65; }
   .following-empty { text-align: center; padding: 40px 16px; color: var(--on-surf-v); font-size: 14px; line-height: 1.5; }
+  .following-empty svg { width: 56px; height: 56px; fill: currentColor; opacity: .5; }
+  .following-actions .ib { width: 40px; height: 40px; }
+  .following-actions .ib svg { width: 22px; height: 22px; fill: currentColor; }
 
   .heart { position: fixed; z-index: 30; width: 110px; height: 110px; margin: -55px 0 0 -55px; pointer-events: none; color: var(--pc);
     filter: drop-shadow(0 6px 18px rgba(0,0,0,.45)); animation: heart .8s var(--spring) forwards; }
@@ -337,10 +353,88 @@
   .lbl2 { font-size: 13px; font-weight: 600; color: var(--on-surf-v); margin-top: 8px; display: flex; align-items: center; gap: 6px; }
   .filepick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
   .filepick .fname { font-size: 13px; color: var(--on-surf-v); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+
+  /* VR / Mixed Reality (Quest-Browser u. ä.): große Ziele, Zeiger-Hover, mittiges Fenster; Oberfläche ausblendbar */
+  html.vr #feed { left: 50%; right: auto; width: min(100vw, calc(100dvh * 1.2)); transform: translateX(-50%); border-radius: 28px; }
+  html.vr body { background: #050404; }
+  html.vr #appbar { top: 22px; left: 50%; right: auto; width: min(100vw - 32px, calc(100dvh * 1.2 - 32px)); transform: translateX(-50%); }
+  html.vr .ib { width: 68px; height: 68px; border-radius: 34px; }
+  html.vr .ib .ic svg, html.vr .rail .ib .ic svg { width: 34px; height: 34px; }
+  html.vr .rail { gap: 18px; right: 20px; }
+  html.vr .rail .ib { width: 88px; height: 88px; border-radius: 44px; }
+  html.vr #appbar .lbl, html.vr .match { font-size: 18px; }
+  html.vr button:hover, html.vr .ib:hover { filter: brightness(1.3); outline: 2px solid rgba(255,255,255,.35); }
+  html.ui-hide #appbar, html.ui-hide .rail, html.ui-hide .match, html.ui-hide .progress { opacity: 0; pointer-events: none; transition: opacity .25s; }
+  #uiShow { position: fixed; z-index: 60; right: 14px; bottom: 14px; width: 48px; height: 48px; border-radius: 24px; display: none; place-items: center; padding: 0; border: 0; opacity: .55; }
+  html.ui-hide #uiShow { display: grid; }
+  html.vr #uiShow { width: 76px; height: 76px; border-radius: 38px; right: 28px; bottom: 28px; }
+
+  /* 3D-Effekt (ein/aus): Video und Bedienelemente schweben mit Schatten über dem Hintergrund und folgen Zeiger bzw. Neigung */
+  html.fx3d .post { background: radial-gradient(ellipse at 50% 35%, #2b2321 0%, #0d0a09 75%); }
+  html.fx3d .media { transform: perspective(900px) rotateX(calc(var(--my, 0) * -5deg)) rotateY(calc(var(--mx, 0) * 6deg)) scale(.94);
+    filter: drop-shadow(0 22px 26px rgba(0,0,0,.75)) drop-shadow(0 0 1px rgba(255,255,255,.3)); will-change: transform; transition: transform .1s linear; }
+  html.fx3d .rail .ib, html.fx3d #appbar .glass, html.fx3d .match {
+    transform: perspective(600px) translate3d(calc(var(--mx, 0) * -7px), calc(var(--my, 0) * -7px), 0) rotateX(calc(var(--my, 0) * -9deg)) rotateY(calc(var(--mx, 0) * 9deg));
+    box-shadow: 0 12px 24px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.4), inset 0 -2px 6px rgba(0,0,0,.35); transition: transform .1s linear; }
+
+  /* Personen-Ausschnitt: die Person aus dem Video liegt als eigene Ebene vor dem Bild und ragt über den Rand */
+  .popcut { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; z-index: 2;
+    transform: perspective(900px) translate3d(calc(var(--mx, 0) * -7px), calc(var(--my, 0) * -5px), 0) rotateX(calc(var(--my, 0) * -5deg)) rotateY(calc(var(--mx, 0) * 6deg)) scale(.955);
+    filter: drop-shadow(0 8px 12px rgba(0,0,0,.45)); will-change: transform; transition: transform .1s linear; }
+  html.fx3d .media { background: transparent; }
+
+  /* Hologramm: Video als Fläche mit Tiefenkarte */
+  canvas.holo { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  .media.holo-src { opacity: 0; }
+  #holoBar { position: fixed; z-index: 46; left: 50%; top: 12px; transform: translateX(-50%); display: none; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; max-width: 60vw;
+    padding: 6px 12px; border-radius: 20px; background: rgba(20,14,12,.6); backdrop-filter: blur(6px); color: var(--on-surf); font: 600 12px var(--font); }
+  html.holo #holoBar { display: flex; }
+  html.ui-hide #holoBar { opacity: 0; pointer-events: none; }
+  #holoBar button { border: 0; border-radius: 16px; padding: 7px 12px; font: 600 12px var(--font); color: var(--on-surf); background: rgba(255,255,255,.14); cursor: pointer; }
+  #holoBar input { width: 90px; vertical-align: middle; }
+  #holoBar input[type=checkbox] { width: auto; }
+  #scanList, #scanView { position: fixed; inset: 0; background: #000; }
+  #scanList { z-index: 47; overflow: auto; padding: 70px 14px 20px; background: rgba(0,0,0,.92); }
+  #scanList[hidden], #scanView[hidden] { display: none; }
+  #scanList h2 { margin: 0 0 12px; font: 700 18px var(--font); color: var(--on-surf); }
+  #scanGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .scard { position: relative; border-radius: 14px; overflow: hidden; background: #1b1b1b; cursor: pointer; aspect-ratio: 9 / 14; }
+  .scard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scard .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 6px; font: 600 11px var(--font); color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.8)); }
+  .scard .del { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border: 0; border-radius: 14px; background: rgba(0,0,0,.55); color: #fff; font-size: 16px; cursor: pointer; }
+  #scanView { z-index: 44; }
+  #scanView video { position: absolute; inset: 0; }
+  #scanTop { position: fixed; z-index: 47; left: 12px; bottom: calc(16px + env(safe-area-inset-bottom)); display: none; gap: 8px; }
+  #scanView:not([hidden]) ~ #scanTop { display: flex; }
+  #scanTop button, #scanList .sclose { border: 0; border-radius: 16px; padding: 8px 14px; font: 600 12px var(--font); color: var(--on-surf); background: rgba(255,255,255,.16); cursor: pointer; }
+  #scanList .sclose { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); left: 12px; }
+  #holoBar select { border: 0; border-radius: 16px; padding: 7px 10px; font: 600 12px var(--font); color: var(--on-surf); background: rgba(255,255,255,.14); }
+  #holoBar select option { color: #000; }
+  #holoMsg:empty { display: none; }
+
+  /* Anime-Avatar: überträgt die Bewegung einer Person aus dem Video auf ein 3D-Modell */
+  #avPanel { position: fixed; z-index: 45; left: 10px; top: 76px; width: min(38vw, 250px); aspect-ratio: 3 / 5; display: none; flex-direction: column;
+    border-radius: 22px; overflow: hidden; background: rgba(20,14,12,.35); border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(6px); }
+  html.av #avPanel { display: flex; }
+  #avCanvas { flex: 1; min-height: 0; width: 100%; display: block; }
+  #avBar { display: flex; gap: 6px; padding: 6px; justify-content: center; flex-wrap: wrap; }
+  #avBar button { border: 0; border-radius: 16px; padding: 7px 12px; font: 600 12px var(--font); color: var(--on-surf); background: rgba(255,255,255,.14); cursor: pointer; }
+  #avBar button:hover { background: rgba(255,255,255,.26); }
+  #avMsg { position: absolute; inset: 0 0 auto 0; padding: 8px 10px; font-size: 12px; text-align: center; color: var(--on-surf-v); pointer-events: none; }
+  canvas.avmark { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; z-index: 3; }
+  html.vr #avPanel { width: 360px; left: 24px; top: 110px; }
+  html.vr #avBar button { font-size: 18px; padding: 12px 18px; }
 </style>
 </head>
 <body>
 
+<div id="scanList" hidden><button class="sclose" type="button" id="scanListClose">Schließen</button><h2>Gescannte Videos</h2><div id="scanGrid"></div></div>
+<div id="scanView" hidden></div>
+<div id="scanTop"><button id="scanBack" type="button">Zurück zur Liste</button></div>
+<div id="holoBar"><span id="holoMsg"></span><select id="holoQ" title="Schnell: Tiefe + Person. Gründlich: zusätzlich Hintergrund hinter der Person per KI ergänzen (dauert deutlich länger)"><option value="fast">Schnell</option><option value="deep">Gründlich (+ Hintergrund)</option></select><button id="holoScan" type="button" title="Tiefenkarte am PC berechnen und auf dem Server speichern">Tiefe scannen</button>
+  <label>Tiefe <input id="holoAmt" type="range" min="0" max="100" value="50"></label><label>Look <input id="holoLook" type="range" min="0" max="100" value="30"></label><label title="Beim Schwenken Lücken mit Hintergrund füllen statt zu strecken"><input id="holoFill" type="checkbox" checked> Lücken füllen</label><label title="Hintergrund weg, nur die Person bleibt"><input id="holoCut" type="checkbox"> Nur Person</label><button id="holoAr" type="button" hidden title="Person als Hologramm im Raum (Quest/AR)">Im Raum</button><button id="holoClose" type="button">Schließen</button></div>
+<div id="avPanel"><canvas id="avCanvas"></canvas><div id="avMsg"></div>
+  <div id="avBar"><button id="avSwitch" type="button">Person 1</button><button id="avScan" type="button" title="Video am PC scannen und auf dem Server speichern">Scannen</button><button id="avAr" type="button" hidden>AR im Raum</button><button id="avClose" type="button">Schließen</button></div></div>
 <!-- Obere Leiste: Quelle links, Werkzeuge rechts -->
 <header id="appbar">
   <button id="srcBtn" class="glass" type="button" aria-label="Quelle wählen">
@@ -348,11 +442,27 @@
   </button>
   <span class="spacer"></span>
   <div class="group glass">
-    <button id="modeToggleBtn" class="ib" type="button" aria-label="Modus wechseln" title="Zwischen Gescannt und Live wechseln"><span class="ic" data-ic="public"></span></button>
+    <button id="scanListBtn" class="ib" type="button" aria-label="Gescannte Videos" title="Gescannte Videos als Hologramm ansehen"><span class="ic" data-ic="star"></span></button>
+    <button id="holoBtn" class="ib" type="button" aria-label="Hologramm" title="Hologramm: Video als 3D-Fläche mit Tiefenkarte"><span class="ic" data-ic="hologram"></span></button>
     <button id="followSheetBtn" class="ib" type="button" aria-label="Gefolgt" title="Gefolgte Creator"><span class="ic" data-ic="person_check"></span></button>
+    <button id="moreBtn" class="ib" type="button" aria-label="Weitere Werkzeuge" aria-haspopup="true" aria-expanded="false" title="Weitere Werkzeuge"><span class="ic" data-ic="apps"></span></button>
     <button id="setBtn" class="ib" type="button" aria-label="Einstellungen" title="Einstellungen"><span class="ic" data-ic="settings"></span></button>
   </div>
+  <!-- Selten genutzte Werkzeuge: beschriftet im Menü, die Buttons behalten ihre IDs -->
+  <div id="moreMenu" class="glass" role="menu" hidden>
+    <div class="mh">3D &amp; Video</div>
+    <button id="avBtn" class="ib mi" type="button" role="menuitem" aria-label="Anime-Avatar" title="Bewegung aus dem Video auf ein Anime-Modell übertragen"><span class="ic" data-ic="face"></span><span class="ml">Anime-Avatar</span></button>
+    <button id="popBtn" class="ib mi" type="button" role="menuitem" aria-label="Personen herausstellen" title="Personen aus dem Video herausstellen"><span class="ic" data-ic="person"></span><span class="ml">Personen herausstellen</span></button>
+    <button id="fxBtn" class="ib mi" type="button" role="menuitem" aria-label="3D-Effekt" title="3D-Effekt an/aus"><span class="ic" data-ic="layers"></span><span class="ml">3D-Effekt</span></button>
+    <button id="vrBtn" class="ib mi" type="button" role="menuitem" aria-label="VR-Ansicht" title="VR / Mixed Reality: Auto, An, Aus"><span class="ic" data-ic="view_in_ar"></span><span class="ml">VR-Ansicht</span></button>
+    <div class="mh">Ansicht</div>
+    <button id="modeToggleBtn" class="ib mi" type="button" role="menuitem" aria-label="Modus wechseln" title="Zwischen Gescannt und Live wechseln"><span class="ic" data-ic="public"></span><span class="ml">Gescannt / Live</span></button>
+    <button id="uiHideBtn" class="ib mi" type="button" role="menuitem" aria-label="Oberfläche ausblenden" title="Oberfläche ausblenden (Taste H)"><span class="ic" data-ic="visibility_off"></span><span class="ml">Oberfläche ausblenden <kbd>H</kbd></span></button>
+    <div class="mh">Andere Seiten</div>
+    <a class="ib mi" href="/" target="_top" role="menuitem"><span class="ic" data-ic="play"></span><span class="ml">Pornhub</span></a>
+  </div>
 </header>
+<button id="uiShow" class="glass" type="button" aria-label="Oberfläche einblenden"><span class="ic" data-ic="visibility"></span></button>
 
 <!-- Gefolgte Creator (Reddit & RedGIFs) -->
 <div id="followingSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="followingTitle" hidden>
@@ -414,6 +524,7 @@
     <div class="sect">Schnellwahl</div>
     <div class="chips">
       <button class="chipbtn ex" type="button" data-q="home"><span class="ic s" data-ic="public"></span>Reddit-Startseite</button>
+      <button class="chipbtn ex" type="button" data-q="likes"><span class="ic s" data-ic="favorite"></span>Meine Likes</button>
       <button class="chipbtn ex" type="button" data-q="https://www.reddit.com/r/aww/"><span class="ic s" data-ic="tag"></span>r/aww</button>
       <button class="chipbtn ex" type="button" data-q="https://www.reddit.com/r/EarthPorn/"><span class="ic s" data-ic="tag"></span>r/EarthPorn</button>
       <button class="chipbtn ex" type="button" data-q="https://www.reddit.com/r/interestingasfuck/"><span class="ic s" data-ic="tag"></span>r/interestingasfuck</button>
@@ -592,6 +703,7 @@
     favorite: 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z',
     restart: 'M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z',
     memory: 'M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z',
+    hologram: 'M12 2 2 12l10 10 10-10L12 2zm0 4.8L17.2 12 12 17.2 6.8 12 12 6.8z',
     layers: 'M11.99 18.54 4.62 12.81 3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z',
     splitscreen: 'M18 4v5H6V4h12m0-2H6c-1.1 0-2 .9-2 2v5c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 13v5H6v-5h12m0-2H6c-1.1 0-2 .9-2 2v5c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-5c0-1.1-.9-2-2-2z',
     check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
@@ -609,6 +721,12 @@
     thumb_up: 'M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z',
     thumb_down: 'M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z',
     person_add: 'M15 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+    apps: 'M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z',
+    hologram: 'M12 2 2 12l10 10 10-10L12 2zm0 4.8L17.2 12 12 17.2 6.8 12 12 6.8z',
+    layers: 'M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z',
+    view_in_ar: 'M3 4v4h2V6h2V4H3zm14 0v2h2v2h2V4h-4zM3 16v4h4v-2H5v-2H3zm16 2h-2v2h4v-4h-2v2zM12 6.5 6.5 9.5v5l5.5 3 5.5-3v-5L12 6.5zm0 2.2 3.3 1.8L12 12.3 8.7 10.5 12 8.7zM8 11.3l3 1.65v3.35L8 14.6v-3.3zm5 5V13l3-1.65v3.3L13 16.3z',
+    visibility_off: 'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78 3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z',
+    visibility: 'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z',
     person_check: 'M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z',
     person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
     volume_up: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z',
@@ -630,6 +748,15 @@
   function icon(n, cls) { const s = document.createElement('span'); s.className = 'ic' + (cls ? ' ' + cls : ''); s.innerHTML = svg(n); return s; }
   function setIc(host, n) { const s = host.querySelector('.ic') || host.appendChild(icon(n)); s.innerHTML = svg(n); }
   document.querySelectorAll('[data-ic]').forEach((s) => { s.innerHTML = svg(s.dataset.ic); });
+  // „Mehr“-Menü oben rechts: öffnen/schließen, nach Auswahl eines Eintrags zu
+  {
+    const mb = document.getElementById('moreBtn'), mm = document.getElementById('moreMenu');
+    const setOpen = (o) => { mm.hidden = !o; mb.setAttribute('aria-expanded', o ? 'true' : 'false'); };
+    mb.addEventListener('click', (e) => { e.stopPropagation(); setOpen(mm.hidden); });
+    mm.addEventListener('click', (e) => { if (e.target.closest('.mi')) setTimeout(() => setOpen(false), 120); });
+    document.addEventListener('click', (e) => { if (!mm.hidden && !mm.contains(e.target) && e.target !== mb) setOpen(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !mm.hidden) setOpen(false); });
+  }
 
   const $ = (sel) => document.querySelector(sel);
   const form = $('#form');
@@ -823,6 +950,7 @@
     setIc(modeToggleBtn, isPool ? 'public' : 'favorite');
     modeToggleBtn.title = isPool ? 'Zur Live-Vorschau wechseln' : 'Zum Gescannt-Modus wechseln';
     modeToggleBtn.setAttribute('aria-label', modeToggleBtn.title);
+    const ml = modeToggleBtn.querySelector('.ml'); if (ml) ml.textContent = isPool ? 'Zu Live wechseln' : 'Zu Gescannt wechseln';
   }
   function syncMode() {
     modeSel.value = mode;
@@ -1429,7 +1557,7 @@
   }
 
   // ---------- Geschmack: Bewertung 0-100 % und Lernen ----------
-  const postInfo = (p) => ({ id: p.id, title: p.title || '', subreddit: p.subreddit || '', author: p.author || '', flair: p.flair || '', text: p.text || '',
+  const postInfo = (p) => ({ id: p.id, title: p.title || '', subreddit: p.subreddit || '', author: p.author || '', flair: p.flair || '', text: p.text || '', score: p.score || 0, comments: p.comments || 0, permalink: p.permalink || '', extra: p.extra || null,
     media: (p.media || []).map((m) => ({ type: m.type, src: m.src || '' })) });
   const tasteFetch = (path, body) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -1475,11 +1603,12 @@
     } finally { sec._scoreBusy = false; }
   }
 
+  const tasteCtx = (sec) => { const n = new Date(); return { mode, hour: n.getHours(), dow: n.getDay(), fast: !!sec._fast }; };
   function dwellOf(sec) { return (sec._dwell || 0) + (sec._since ? Date.now() - sec._since : 0); }
 
   function sendVote(sec, vote) {
     sec._voted = true;
-    tasteFetch('/api/taste/event', { post: postInfo(sec._post), kind: 'vote', vote, dwell_ms: dwellOf(sec) }).catch(() => {});
+    tasteFetch('/api/taste/event', { post: postInfo(sec._post), kind: 'vote', vote, dwell_ms: dwellOf(sec), ctx: tasteCtx(sec) }).catch(() => {});
     setTimeout(() => refreshScore(sec, true), 400);
   }
 
@@ -1490,7 +1619,7 @@
     const v = activeVideo(sec);
     const media_ms = v && isFinite(v.duration) ? v.duration * 1000 : 0;
     sec._dwell = 0;
-    tasteFetch('/api/taste/event', { post: postInfo(sec._post), kind: 'view', dwell_ms: d, media_ms }).catch(() => {});
+    tasteFetch('/api/taste/event', { post: postInfo(sec._post), kind: 'view', dwell_ms: d, media_ms, ctx: tasteCtx(sec) }).catch(() => {});
   }
 
   // Scanner-Namen wie "male genitalia exposed" auf Deutsch anzeigen
@@ -1818,9 +1947,23 @@
       followingListEl.appendChild(row);
     });
   }
-  $('#followSheetBtn').addEventListener('click', () => {
+  // Reddit-Follows vom eingeloggten Konto holen und mit der lokalen Liste zusammenführen
+  async function syncFollowing() {
+    try {
+      const r = await fetch('/api/following', { headers: { 'X-Redswipe': '1' } });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+      const users = Array.isArray(d.users) ? d.users : [];
+      try { localStorage.setItem(FOLLOW_KEY, JSON.stringify(users)); } catch {}
+      document.querySelectorAll('.follow[data-u]').forEach((b) => b._paint && b._paint());
+      return true;
+    } catch (e) { toast('Reddit-Follows nicht geladen: ' + e.message, 'error'); return false; }
+  }
+  $('#followSheetBtn').addEventListener('click', async () => {
     renderFollowing();
     openSheet(followingSheet);
+    if (!followedList().length && !followedCreatorsList().length) followingListEl.firstChild && (followingListEl.firstChild.querySelector('p').firstChild.textContent = 'Lade deine Reddit-Follows …');
+    if (await syncFollowing()) renderFollowing();
   });
 
   let toastTimer = 0;
@@ -2006,6 +2149,7 @@
         const v = activeVideo(sec);
         if (v) {
           is2x = true;
+          sec._fast = true;
           v.playbackRate = 2.0;
           if (v._rs && v._rs.audio) v._rs.audio.playbackRate = 2.0;
           let b = sec.querySelector('.speed-badge');
@@ -2163,7 +2307,8 @@
     busy = true;
     let empties = 0;
     try {
-      if (mode === 'pool') {
+      // „Meine Likes“ kommt immer direkt von Reddit, auch im Gescannt-Modus
+      if (mode === 'pool' && cur.q !== 'likes') {
         if (feed.querySelector('.state.wait')) return;
         const r = await fetchPool(my);
         if (!r || my !== token) return;
@@ -2189,6 +2334,7 @@
   const SORT_NAMES = { best: 'Best', hot: 'Hot', new: 'Neu', top: 'Top', rising: 'Rising' };
   function srcName(q) {
     if (!q || q === 'home') return 'Reddit-Startseite';
+    if (q === 'likes') return 'Meine Likes';
     if (q.replace(/\/+$/, '').toLowerCase() === DEFAULT_Q.replace(/\/+$/, '').toLowerCase()) return 'Mein Feed';
     let m = q.match(/\/m\/([^/?#]+)/i);
     if (m) return 'm/' + m[1];
@@ -2221,7 +2367,7 @@
     history.replaceState(null, '', '?' + params.toString());
 
     updateSrcBtn();
-    if (mode === 'pool') {
+    if (mode === 'pool' && q !== 'likes') {
       const my = token;
       fetch('/api/pool/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: q || 'home' }) })
         .then((r) => r.ok ? null : r.json().then((d) => { throw new Error(d.error || 'Quelle ungültig'); }))
@@ -2280,6 +2426,904 @@
     e.preventDefault();
     feed.scrollBy({ top: dir * window.innerHeight, behavior: 'smooth' });
   });
+
+  // ---------- VR / Mixed Reality & Oberfläche ausblenden ----------
+  const isXrBrowser = /OculusBrowser|Quest|Pico|VisionOS|Vision Pro/i.test(navigator.userAgent);
+  const vrNames = { auto: 'Auto', on: 'An', off: 'Aus' };
+  function applyVr() {
+    const pref = store.get('rs-vr') || 'auto';
+    document.documentElement.classList.toggle('vr', pref === 'on' || (pref === 'auto' && isXrBrowser));
+    $('#vrBtn').title = 'VR / Mixed Reality: ' + vrNames[pref];
+    return pref;
+  }
+  $('#vrBtn').addEventListener('click', () => {
+    const next = { auto: 'on', on: 'off', off: 'auto' }[store.get('rs-vr') || 'auto'];
+    store.set('rs-vr', next);
+    applyVr();
+    toast('VR-Ansicht: ' + vrNames[next], 'info');
+  });
+  function setUiHidden(h) { document.documentElement.classList.toggle('ui-hide', h); }
+  $('#uiHideBtn').addEventListener('click', () => setUiHidden(true));
+  $('#uiShow').addEventListener('click', () => setUiHidden(false));
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName)) return;
+    if (e.key === 'h' || e.key === 'H') setUiHidden(!document.documentElement.classList.contains('ui-hide'));
+  });
+  if (new URLSearchParams(location.search).get('vr') === '1') store.set('rs-vr', 'on');
+  applyVr();
+
+  // ---------- 3D-Effekt ----------
+  const root = document.documentElement;
+  let fxRaf = 0, fxMx = 0, fxMy = 0;
+  const fxSet = (x, y) => {
+    fxMx = Math.max(-1, Math.min(1, x)); fxMy = Math.max(-1, Math.min(1, y));
+    if (fxRaf) return;
+    fxRaf = requestAnimationFrame(() => { fxRaf = 0; root.style.setProperty('--mx', fxMx.toFixed(3)); root.style.setProperty('--my', fxMy.toFixed(3)); });
+  };
+  const fxPointer = (e) => { if (e.pointerType !== 'touch') fxSet((e.clientX / innerWidth - 0.5) * 2, (e.clientY / innerHeight - 0.5) * 2); };
+  const fxTilt = (e) => { if (e.gamma != null && e.beta != null) fxSet(e.gamma / 25, (e.beta - 50) / 25); };
+  function applyFx(on) {
+    root.classList.toggle('fx3d', on);
+    window.removeEventListener('pointermove', fxPointer);
+    window.removeEventListener('deviceorientation', fxTilt);
+    if (on) {
+      window.addEventListener('pointermove', fxPointer, { passive: true });
+      window.addEventListener('deviceorientation', fxTilt, { passive: true });
+    } else { fxSet(0, 0); }
+  }
+  $('#fxBtn').addEventListener('click', async () => {
+    const on = !root.classList.contains('fx3d');
+    // iOS verlangt eine Freigabe für den Neigungssensor
+    if (on && window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) { try { await DeviceOrientationEvent.requestPermission(); } catch { /* ignorieren */ } }
+    store.set('rs-3d', on ? '1' : '0');
+    applyFx(on);
+    toast('3D-Effekt ' + (on ? 'an' : 'aus'), 'info');
+  });
+  applyFx(store.get('rs-3d') === '1');
+
+  // ---------- Personen-Ausschnitt (Segmentierung im Browser, nur für das aktive Video) ----------
+  const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+  const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+  let segP = null, popTimer = 0, popBusy = false, popCur = null;
+  function loadSeg() {
+    if (!segP) segP = (async () => {
+      const V = await import(MP + '/vision_bundle.mjs');
+      const fs = await V.FilesetResolver.forVisionTasks(MP + '/wasm');
+      const mk = (delegate) => V.ImageSegmenter.createFromOptions(fs, { baseOptions: { modelAssetPath: MP_MODEL, delegate }, runningMode: 'VIDEO', outputCategoryMask: true, outputConfidenceMasks: false });
+      try { return await mk('GPU'); } catch { return await mk('CPU'); }
+    })().catch((e) => { segP = null; throw e; });
+    return segP;
+  }
+  function popClear() { document.querySelectorAll('canvas.popcut').forEach((c) => c.remove()); popCur = null; }
+  async function popTick() {
+    if (popBusy || document.hidden) return;
+    const posts = feed.querySelectorAll('.post');
+    const sec = posts[Math.round(feed.scrollTop / Math.max(1, feed.clientHeight))];
+    const v = sec && sec.querySelector('.carousel') ? activeVideo(sec) : null;
+    if (!v || v.readyState < 2 || !v.videoWidth) { if (popCur) popClear(); return; }
+    popBusy = true;
+    try {
+      const seg = await loadSeg();
+      if (!popCur || popCur.v !== v) {
+        popClear();
+        const k = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
+        const c = document.createElement('canvas');
+        c.className = 'popcut'; c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+        v.parentElement.appendChild(c);
+        popCur = { v, c, ctx: c.getContext('2d'), m: document.createElement('canvas') };
+      }
+      if (v.paused && popCur.done === v.currentTime) return;
+      const r = seg.segmentForVideo(v, performance.now());
+      const mask = r.categoryMask;
+      const mw = mask.width, mh = mask.height, arr = mask.getAsUint8Array();
+      let on = 0;
+      for (let i = 0; i < arr.length; i++) if (arr[i]) on++;
+      // Welche Klasse die Person ist, hängt vom Modell ab: die kleinere, mittige Fläche gilt als Person
+      const inv = on / arr.length > 0.6;
+      const m = popCur.m; m.width = mw; m.height = mh;
+      const mc = m.getContext('2d'), img = mc.createImageData(mw, mh);
+      for (let i = 0; i < arr.length; i++) img.data[i * 4 + 3] = (arr[i] ? 1 : 0) !== (inv ? 1 : 0) ? 255 : 0;
+      mc.putImageData(img, 0, 0);
+      const { c, ctx } = popCur;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.filter = 'blur(0.6px)';
+      ctx.drawImage(m, 0, 0, c.width, c.height);
+      ctx.filter = 'none';
+      popCur.done = v.currentTime;
+      mask.close && mask.close();
+    } catch (e) {
+      console.warn('Personen-Ausschnitt:', e);
+      applyPop(false); store.set('rs-pop', '0'); toast('Personen-Ausschnitt nicht verfügbar', 'error');
+    } finally { popBusy = false; }
+  }
+  function applyPop(on) {
+    clearInterval(popTimer); popTimer = 0;
+    document.documentElement.classList.toggle('pop', on);
+    if (on) popTimer = setInterval(popTick, 70); else popClear();
+  }
+  $('#popBtn').addEventListener('click', () => {
+    const on = !document.documentElement.classList.contains('pop');
+    store.set('rs-pop', on ? '1' : '0');
+    if (on && !document.documentElement.classList.contains('fx3d')) { store.set('rs-3d', '1'); applyFx(true); }
+    applyPop(on);
+    toast('Personen-Ausschnitt ' + (on ? 'an (lädt beim ersten Mal)' : 'aus'), 'info');
+  });
+  if (store.get('rs-pop') === '1') applyPop(true);
+
+  // ---------- Anime-Avatar (Pose aus dem Video -> VRM-Modell, auch als AR im Raum) ----------
+  const AV_MODEL = 'https://cdn.jsdelivr.net/gh/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm';
+  const AV_POSE = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+  const AV_HAND = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task';
+  const AV_SEG = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
+  const AV_FACE = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+  const av = { scans: {}, scanning: false, seg: null, rec: null, fc: {}, rr: 0, on: false, ready: null, T: null, vrm: null, ren: null, scene: null, cam: null, pl: null, sel: 0, lock: false, c: null, lastDet: 0, clock: null, xr: null, mark: null, n: 0 };
+  const avMsg = (t) => { $('#avMsg').textContent = t || ''; };
+  function avLoad() {
+    if (!av.ready) av.ready = (async () => {
+      avMsg('Lade Modell und Erkennung …');
+      const T = await import('three');
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const { VRMLoaderPlugin, VRMUtils } = await import('@pixiv/three-vrm');
+      const V = await import(MP + '/vision_bundle.mjs');
+      const fs = await V.FilesetResolver.forVisionTasks(MP + '/wasm');
+      const mk = (delegate) => V.PoseLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: AV_POSE, delegate }, runningMode: 'VIDEO', numPoses: 3 });
+      try { av.pl = await mk('GPU'); } catch { av.pl = await mk('CPU'); }
+      // Hände und Gesicht: optional, der Rest läuft auch ohne
+      const mkOpt = async (cls, opts) => {
+        for (const delegate of ['GPU', 'CPU']) {
+          try { return await V[cls].createFromOptions(fs, Object.assign({ runningMode: 'IMAGE' }, opts, { baseOptions: Object.assign({ delegate }, opts.baseOptions) })); } catch { /* nächster Versuch */ }
+        }
+        return null;
+      };
+      av.hl = await mkOpt('HandLandmarker', { numHands: 1, baseOptions: { modelAssetPath: AV_HAND } });
+      av.fl = await mkOpt('FaceLandmarker', { numFaces: 1, outputFaceBlendshapes: true, baseOptions: { modelAssetPath: AV_FACE } });
+      const cv = $('#avCanvas');
+      const ren = new T.WebGLRenderer({ canvas: cv, alpha: true, antialias: true });
+      ren.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+      ren.outputColorSpace = T.SRGBColorSpace;
+      const scene = new T.Scene();
+      const sun = new T.DirectionalLight(0xffffff, 2.2); sun.position.set(1, 2, 2); scene.add(sun, new T.AmbientLight(0xffffff, 1.1));
+      const cam = new T.PerspectiveCamera(28, 1, 0.1, 20); cam.position.set(0, 0.95, 4.1); cam.lookAt(0, 0.88, 0);
+      const loader = new GLTFLoader(); loader.register((p) => new VRMLoaderPlugin(p));
+      const gltf = await loader.loadAsync(AV_MODEL);
+      const vrm = gltf.userData.vrm;
+      VRMUtils.rotateVRM0 && VRMUtils.rotateVRM0(vrm);
+      scene.add(vrm.scene);
+      Object.assign(av, { T, ren, scene, cam, vrm, clock: new T.Clock() });
+      av.q = {}; av.bone = (n) => vrm.humanoid.getNormalizedBoneNode(n);
+      avIdle();
+      avMsg('');
+    })().catch((e) => { av.ready = null; throw e; });
+    return av.ready;
+  }
+  // Ohne erkannte Person: Arme locker nach unten
+  function avIdle() {
+    const T = av.T, z = new T.Vector3(0, 0, 1);
+    av.bone('leftUpperArm').quaternion.setFromAxisAngle(z, -1.2);
+    av.bone('rightUpperArm').quaternion.setFromAxisAngle(z, 1.2);
+  }
+  function avVideo() {
+    const posts = feed.querySelectorAll('.post');
+    const sec = posts[Math.round(feed.scrollTop / Math.max(1, feed.clientHeight))];
+    return sec && sec.querySelector('.carousel') ? activeVideo(sec) : null;
+  }
+  function avMark(v, p) {
+    if (!av.mark || av.mark.v !== v) {
+      if (av.mark) av.mark.c.remove();
+      const c = document.createElement('canvas'); c.className = 'avmark'; c.width = 360; c.height = Math.round(360 * (v.videoHeight / v.videoWidth));
+      v.parentElement.appendChild(c); av.mark = { v, c };
+    }
+    const c = av.mark.c, x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height);
+    if (!p) return;
+    const h = p[0], r = Math.max(10, Math.abs(p[7].x - p[8].x) * c.width * 1.4);
+    x.lineWidth = 4; x.strokeStyle = '#ffb59e'; x.shadowColor = '#000'; x.shadowBlur = 6;
+    x.beginPath(); x.arc(h.x * c.width, h.y * c.height, r, 0, 7); x.stroke();
+  }
+  function avPose(v, now, full) {
+    const T = av.T;
+    const r = av.pl.detectForVideo(v, now);
+    const n = r.landmarks.length; av.n = n;
+    $('#avSwitch').textContent = n ? 'Person ' + (((av.sel % n) + n) % n + 1) + '/' + n : 'Keine Person';
+    if (!n) { avMark(v, null); av.lock = false; avVis(null, true); return null; }
+    // Person wählen: nach Wechsel-Knopf von links nach rechts, danach der gleichen Person folgen
+    const hx = (i) => (r.landmarks[i][23].x + r.landmarks[i][24].x) / 2, hy = (i) => (r.landmarks[i][23].y + r.landmarks[i][24].y) / 2;
+    let k;
+    if (av.lock && av.c) {
+      k = 0; let best = 9;
+      for (let i = 0; i < n; i++) { const d = Math.hypot(hx(i) - av.c.x, hy(i) - av.c.y); if (d < best) { best = d; k = i; } }
+    } else {
+      const ord = [...Array(n).keys()].sort((a, b) => hx(a) - hx(b));
+      k = ord[((av.sel % n) + n) % n]; av.lock = true;
+    }
+    av.c = { x: hx(k), y: hy(k) };
+    avMark(v, r.landmarks[k]);
+    const lm = r.landmarks[k], wl = r.worldLandmarks[k];
+    const rec = { w: wl.map((q) => [+q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3)]), v: lm.map((l) => +(l.visibility == null ? 1 : l.visibility).toFixed(2)) };
+    avDrive(rec);
+    try {
+      if (full) { avFace(v, lm, rec); avHand(v, lm, 'left', rec); avHand(v, lm, 'right', rec); }
+      else { av.rr = (av.rr + 1) % 3; if (av.rr === 0) avFace(v, lm, rec); else avHand(v, lm, av.rr === 1 ? 'left' : 'right', rec); }
+    } catch (e) { console.warn('Gesicht/Finger:', e); }
+    return rec;
+  }
+  // Nur zeigen, was im Video zu sehen ist: Körperteile, die dort außerhalb des Bildes oder verdeckt sind, blendet die Figur aus
+  function avVis(vs, all) {
+    const hid = av.hid || (av.hid = {});
+    const part = (key, s, names) => {
+      const nh = all ? false : (hid[key] ? s < 0.5 : s < 0.3);
+      if (nh === !!hid[key]) return;
+      hid[key] = nh;
+      for (const n of names) { const b = av.vrm.humanoid.getRawBoneNode(n); if (b) b.scale.setScalar(nh ? 0.0001 : 1); }
+    };
+    const v = (i) => (vs ? vs[i] : 1);
+    part('head', Math.max(v(0), v(7), v(8)), ['head']);
+    part('lArm', v(13), ['leftUpperArm']); part('lFore', v(15), ['leftLowerArm']);
+    part('rArm', v(14), ['rightUpperArm']); part('rFore', v(16), ['rightLowerArm']);
+    part('lLeg', v(25), ['leftUpperLeg']); part('lShin', v(27), ['leftLowerLeg']);
+    part('rLeg', v(26), ['rightUpperLeg']); part('rShin', v(28), ['rightLowerLeg']);
+  }
+  // Rumpf, Arme, Beine, Kopf aus gemessenen (oder gespeicherten) Körperpunkten auf das Modell legen
+  function avDrive(rec) {
+    const T = av.T, vis = (i) => rec.v[i];
+    avVis(rec.v);
+    const P = (i) => new T.Vector3(rec.w[i][0], -rec.w[i][1], -rec.w[i][2]);
+    const mid = (a, b) => P(a).add(P(b)).multiplyScalar(0.5);
+    const basis = (x, up) => {
+      x = x.clone().normalize(); const z = new T.Vector3().crossVectors(x, up).normalize(), y = new T.Vector3().crossVectors(z, x).normalize();
+      return new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(x, y, z));
+    };
+    const set = (name, q) => av.bone(name).quaternion.slerp(q, 0.55);
+    const X = new T.Vector3(1, 0, 0), Y = new T.Vector3(0, 1, 0), nY = new T.Vector3(0, -1, 0), nX = new T.Vector3(-1, 0, 0);
+    const up = mid(11, 12).sub(mid(23, 24));
+    const okT = vis(11) > 0.4 && vis(12) > 0.4 && vis(23) > 0.4 && vis(24) > 0.4;
+    let qH = av.q.h || new T.Quaternion(), qC = av.q.c || new T.Quaternion();
+    if (okT) {
+      qH = basis(P(23).sub(P(24)), up); qC = basis(P(11).sub(P(12)), up);
+      av.q.h = qH; av.q.c = qC;
+      set('hips', qH); set('spine', qH.clone().invert().multiply(qC));
+    }
+    const aim = (name, rest, a, b, parent) => {
+      if (vis(a) < 0.4 || vis(b) < 0.4) return av.q[name] || parent;
+      const q = new T.Quaternion().setFromUnitVectors(rest, P(b).sub(P(a)).normalize());
+      set(name, parent.clone().invert().multiply(q)); av.q[name] = q; return q;
+    };
+    const lu = aim('leftUpperArm', X, 11, 13, qC); aim('leftLowerArm', X, 13, 15, lu);
+    const ru = aim('rightUpperArm', nX, 12, 14, qC); aim('rightLowerArm', nX, 14, 16, ru);
+    const ll = aim('leftUpperLeg', nY, 23, 25, qH); aim('leftLowerLeg', nY, 25, 27, ll);
+    const rl = aim('rightUpperLeg', nY, 24, 26, qH); aim('rightLowerLeg', nY, 26, 28, rl);
+    if (vis(0) > 0.4 && vis(7) > 0.3 && vis(8) > 0.3) {
+      const ex = P(7).sub(P(8)).normalize(), fw = P(0).sub(mid(7, 8)).normalize();
+      const hy2 = new T.Vector3().crossVectors(fw, ex).normalize(), hz = new T.Vector3().crossVectors(ex, hy2).normalize();
+      const qh = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(ex, hy2, hz));
+      set('head', qC.clone().invert().multiply(qh));
+    }
+  }
+  // Ausschnitt um Kopf bzw. Hand, damit Gesicht und Finger auch in einem Gesamtbild groß genug erkannt werden
+  function avCrop(v, cx, cy, size) {
+    if (!av.crop) { av.crop = document.createElement('canvas'); av.crop.width = av.crop.height = 256; av.cctx = av.crop.getContext('2d', { willReadFrequently: false }); }
+    const W = v.videoWidth, H = v.videoHeight, s = Math.max(32, Math.min(size, W, H));
+    const x = Math.max(0, Math.min(W - s, cx - s / 2)), y = Math.max(0, Math.min(H - s, cy - s / 2));
+    av.cctx.drawImage(v, x, y, s, s, 0, 0, 256, 256);
+    return av.crop;
+  }
+  const avAng = (a, b, c) => {
+    const u = [b.x - a.x, b.y - a.y, b.z - a.z], w = [c.x - b.x, c.y - b.y, c.z - b.z];
+    const d = (u[0] * w[0] + u[1] * w[1] + u[2] * w[2]) / ((Math.hypot(...u) * Math.hypot(...w)) || 1);
+    return Math.acos(Math.max(-1, Math.min(1, d)));
+  };
+  const AV_FINGERS = { Index: [5, 6, 7, 8], Middle: [9, 10, 11, 12], Ring: [13, 14, 15, 16], Little: [17, 18, 19, 20] };
+  function avHand(v, lm, side, rec) {
+    const w = side === 'left' ? 15 : 16, e = side === 'left' ? 13 : 14, ids = side === 'left' ? [15, 17, 19, 21] : [16, 18, 20, 22];
+    if (!av.hl || (lm[w].visibility != null && lm[w].visibility < 0.5)) return;
+    const W = v.videoWidth, H = v.videoHeight;
+    const cx = ids.reduce((q, i) => q + lm[i].x, 0) / 4 * W, cy = ids.reduce((q, i) => q + lm[i].y, 0) / 4 * H;
+    const fl = Math.hypot((lm[w].x - lm[e].x) * W, (lm[w].y - lm[e].y) * H);
+    const r = av.hl.detect(avCrop(v, cx, cy, fl * 1.25));
+    if (!r.worldLandmarks || !r.worldLandmarks.length) return;
+    const h = r.worldLandmarks[0], m = {};
+    for (const f in AV_FINGERS) {
+      const [a, b, c, d] = AV_FINGERS[f];
+      m[f + 'Proximal'] = avAng(h[0], h[a], h[b]); m[f + 'Intermediate'] = avAng(h[a], h[b], h[c]); m[f + 'Distal'] = avAng(h[b], h[c], h[d]);
+    }
+    m.ThumbMetacarpal = avAng(h[0], h[1], h[2]); m.ThumbProximal = avAng(h[1], h[2], h[3]); m.ThumbDistal = avAng(h[2], h[3], h[4]);
+    for (const k in m) m[k] = +m[k].toFixed(2);
+    (rec.h = rec.h || {})[side] = m;
+    avHandApply(side, m);
+  }
+  const AV_THUMBF = { ThumbMetacarpal: 0.5, ThumbProximal: 0.8, ThumbDistal: 0.8 };
+  function avHandApply(side, m) {
+    const z = new av.T.Vector3(0, 0, 1), sg = side === 'left' ? -1 : 1;
+    for (const key in m) {
+      const bone = av.bone(side + key); if (!bone) continue;
+      const k = side + key, prev = av.fc[k] == null ? m[key] : av.fc[k], nv = prev + (m[key] - prev) * 0.6;
+      av.fc[k] = nv; bone.quaternion.setFromAxisAngle(z, sg * Math.min(1.9, nv * (AV_THUMBF[key] || 1)));
+    }
+  }
+  function avFace(v, lm, rec) {
+    if (!av.fl || !av.vrm.expressionManager || (lm[7].visibility != null && (lm[7].visibility < 0.3 || lm[8].visibility < 0.3))) return;
+    const W = v.videoWidth, H = v.videoHeight;
+    const ear = Math.hypot((lm[7].x - lm[8].x) * W, (lm[7].y - lm[8].y) * H);
+    const r = av.fl.detect(avCrop(v, (lm[7].x + lm[8].x) / 2 * W, lm[0].y * H, ear * 2.6));
+    if (!r.faceBlendshapes || !r.faceBlendshapes.length) return;
+    const b = {}; for (const c of r.faceBlendshapes[0].categories) b[c.categoryName] = c.score;
+    const g = (n) => b[n] || 0, cl = (x) => +Math.max(0, Math.min(1, x)).toFixed(2);
+    rec.f = {
+      blink: cl((g('eyeBlinkLeft') + g('eyeBlinkRight')) / 2 * 1.3), aa: cl(g('jawOpen') * 1.2),
+      ou: cl((g('mouthFunnel') + g('mouthPucker')) / 2 * 1.4), ee: cl((g('mouthStretchLeft') + g('mouthStretchRight')) / 2 * 1.5),
+      happy: cl((g('mouthSmileLeft') + g('mouthSmileRight')) / 2 * 1.2), sad: cl((g('mouthFrownLeft') + g('mouthFrownRight')) / 2 * 1.2),
+      surprised: cl((g('browInnerUp') + (g('eyeWideLeft') + g('eyeWideRight')) / 2) / 2 * 1.2),
+    };
+    avFaceApply(rec.f);
+  }
+  function avFaceApply(f) {
+    const em = av.vrm.expressionManager; if (!em) return;
+    for (const n in f) { const p = em.getValue(n) || 0; em.setValue(n, p + (f[n] - p) * 0.6); }
+  }
+  // ---- Scan: am PC im Browser berechnen, auf dem Server ablegen, überall abspielen ----
+  const avKey = (v) => {
+    const s = v.currentSrc || v.src || ''; let h = 2166136261;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0).toString(16) + '-' + s.length;
+  };
+  function avScanFetch(v, key) {
+    av.scans[key] = null;
+    fetch('/api/vscan?key=' + key).then(async (r) => {
+      if (!r.ok) return;
+      av.scans[key] = await r.json();
+      avMsg('Gespeicherter Scan geladen'); setTimeout(() => avMsg(''), 1800);
+    }).catch(() => {});
+  }
+  async function avSegLoad() {
+    if (!av.seg) {
+      const V = await import(MP + '/vision_bundle.mjs');
+      const fs = await V.FilesetResolver.forVisionTasks(MP + '/wasm');
+      const mk = (delegate) => V.ImageSegmenter.createFromOptions(fs, { baseOptions: { modelAssetPath: AV_SEG, delegate }, runningMode: 'VIDEO', outputCategoryMask: true, outputConfidenceMasks: false });
+      try { av.seg = await mk('GPU'); } catch { av.seg = await mk('CPU'); }
+    }
+    return av.seg;
+  }
+  const avSeek = (v, t) => new Promise((res) => {
+    const done = () => { v.removeEventListener('seeked', done); res(); };
+    v.addEventListener('seeked', done); v.currentTime = t; setTimeout(done, 3000);
+  });
+  // Maske auf halbe Auflösung verkleinern und als Lauflängen speichern (0 Hintergrund, 1 Haare, 2 Haut Körper, 3 Haut Gesicht, 4 Kleidung, 5 Sonstiges)
+  function avRle(arr, w, h) {
+    const out = []; let prev = -1, run = 0;
+    for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+      const c = arr[y * w + x];
+      if (c === prev) run++; else { if (run) out.push(prev, run); prev = c; run = 1; }
+    }
+    out.push(prev, run); return out;
+  }
+  async function avScanRun() {
+    if (av.scanning) { av.scanning = false; return; }
+    const v = avVideo();
+    if (!v || !isFinite(v.duration) || v.duration <= 0) { toast('Kein Video zum Scannen', 'error'); return; }
+    const key = avKey(v), fps = 10, n = Math.min(Math.floor(v.duration * fps), 600);
+    const wasPaused = v.paused, t0 = v.currentTime, btn = $('#avScan');
+    av.scanning = true; btn.textContent = 'Abbrechen'; v.pause();
+    const frames = [], masks = []; let segW = 0, segH = 0, done = false;
+    try {
+      await avLoad(); const seg = await avSegLoad();
+      av.lock = false;
+      for (let i = 0; i < n && av.scanning; i++) {
+        avMsg('Scan ' + Math.round(i / n * 100) + ' % (' + i + '/' + n + ')');
+        await avSeek(v, i / fps);
+        frames.push(avPose(v, performance.now(), true));
+        const m = seg.segmentForVideo(v, performance.now()).categoryMask;
+        segW = Math.ceil(m.width / 2); segH = Math.ceil(m.height / 2);
+        masks.push(avRle(m.getAsUint8Array(), m.width, m.height));
+        m.close && m.close();
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      done = av.scanning;
+    } catch (e) { console.warn('Scan:', e); toast('Scan fehlgeschlagen', 'error'); }
+    if (done) {
+      const payload = { v: 1, key, fps, w: v.videoWidth, h: v.videoHeight, dur: v.duration, frames, seg: { w: segW, h: segH, labels: ['hintergrund', 'haare', 'haut-koerper', 'haut-gesicht', 'kleidung', 'sonstiges'], masks } };
+      av.scans[key] = payload;
+      try {
+        avMsg('Speichere auf dem Server …');
+        const gz = await new Response(new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+        const r = await fetch('/api/vscan?key=' + key, { method: 'PUT', body: gz });
+        toast(r.ok ? 'Scan gespeichert (' + Math.round(gz.size / 1024) + ' KB)' : 'Scan nur lokal, Server lehnt ab', r.ok ? 'info' : 'error');
+      } catch { toast('Scan nur lokal, Speichern fehlgeschlagen', 'error'); }
+    }
+    av.scanning = false; btn.textContent = 'Scannen'; avMsg('');
+    await avSeek(v, t0); if (!wasPaused) v.play().catch(() => {});
+  }
+  function avFrame(t) {
+    if (!av.vrm || document.hidden) return;
+    const v = avVideo();
+    const key = v ? avKey(v) : '', sc = key ? av.scans[key] : null;
+    if (key && av.scans[key] === undefined) avScanFetch(v, key);
+    if (av.scanning) { /* Scan läuft: Bild kommt vom Scan */ }
+    else if (sc && sc.frames) {
+      const rec = sc.frames[Math.min(sc.frames.length - 1, Math.max(0, Math.round(v.currentTime * sc.fps)))];
+      if (rec) { avDrive(rec); if (rec.h) for (const sd in rec.h) avHandApply(sd, rec.h[sd]); if (rec.f) avFaceApply(rec.f); }
+      if (av.mark) { av.mark.c.remove(); av.mark = null; }
+      $('#avSwitch').textContent = 'Gespeicherter Scan';
+    } else if (v && v.readyState >= 2 && v.videoWidth && performance.now() - av.lastDet > (av.xr ? 50 : 33)) {
+      av.lastDet = performance.now();
+      try { avPose(v, av.lastDet); } catch (e) { console.warn('Avatar:', e); }
+    } else if (!v && av.mark) { av.mark.c.remove(); av.mark = null; }
+    av.vrm.update(av.clock.getDelta());
+    av.ren.render(av.scene, av.cam);
+  }
+  function avSize() {
+    const cv = $('#avCanvas'), w = cv.clientWidth, h = cv.clientHeight;
+    if (w && h && av.ren && !av.xr) { av.ren.setSize(w, h, false); av.cam.aspect = w / h; av.cam.updateProjectionMatrix(); }
+  }
+  async function avStart() {
+    document.documentElement.classList.add('av'); av.on = true;
+    try {
+      await avLoad(); avSize();
+      av.ren.setAnimationLoop(avFrame);
+    } catch (e) { console.warn('Avatar:', e); avStop(); toast('Avatar konnte nicht geladen werden', 'error'); }
+  }
+  function avStop() {
+    av.on = false; av.scanning = false; document.documentElement.classList.remove('av'); avMsg('');
+    if (av.ren) av.ren.setAnimationLoop(null);
+    if (av.mark) { av.mark.c.remove(); av.mark = null; }
+    if (av.xr) av.xr.end();
+  }
+  async function avEnterAr() {
+    try {
+      const T = av.T, ren = av.ren;
+      const session = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      ren.xr.enabled = true; ren.xr.setReferenceSpaceType('local-floor');
+      await ren.xr.setSession(session); av.xr = session;
+      const root = av.vrm.scene; root.position.set(0, 0, -1.5); root.rotation.set(0, 0, 0);
+      const ctrl = ren.xr.getController(0); av.scene.add(ctrl);
+      // Auslöser: Figur dorthin stellen, wohin der Controller zeigt (auf den Boden, mit Blick zu dir)
+      session.addEventListener('select', () => {
+        const p = new T.Vector3(), d = new T.Vector3(0, 0, -1).applyQuaternion(ctrl.getWorldQuaternion(new T.Quaternion()));
+        ctrl.getWorldPosition(p);
+        const tx = p.x + d.x * 1.6, tz = p.z + d.z * 1.6;
+        root.position.set(tx, 0, tz); root.rotation.y = Math.atan2(p.x - tx, p.z - tz);
+      });
+      session.addEventListener('end', () => {
+        av.xr = null; ren.xr.enabled = false; av.scene.remove(ctrl);
+        root.position.set(0, 0, 0); root.rotation.set(0, 0, 0); avSize();
+        ren.setAnimationLoop(av.on ? avFrame : null);
+      });
+    } catch (e) { console.warn('AR:', e); av.xr = null; toast('AR konnte nicht gestartet werden', 'error'); }
+  }
+  $('#avBtn').addEventListener('click', () => { if (av.on) avStop(); else avStart(); });
+  $('#avClose').addEventListener('click', avStop);
+  $('#avSwitch').addEventListener('click', () => { av.sel++; av.lock = false; });
+  $('#avAr').addEventListener('click', avEnterAr);
+  $('#avScan').addEventListener('click', avScanRun);
+  addEventListener('resize', avSize);
+  if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-ar').then((ok) => { if (ok) $('#avAr').hidden = false; }).catch(() => {});
+
+  // ---------- Hologramm: Tiefenkarte -> Video als 3D-Fläche ----------
+  const HOLO_TF = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1';
+  const HOLO_MODEL = 'onnx-community/depth-anything-v2-small';
+  const holo = { on: false, T: null, TF: null, ren: null, scene: null, cam: null, cv: null, mesh: null, mat: null, v: null, key: '', vtex: null, dtex: null, dsize: '', idx: -1,
+    scans: {}, pipeP: null, busy: false, scanning: false, noLive: false, lo: null, hi: null, cx: 0, cy: 0, last: 0, a: 1, raf: 0, tmp: null };
+  const holoMsg = (t) => { $('#holoMsg').textContent = t || ''; };
+  const b64 = (u8) => { let q = ''; for (let i = 0; i < u8.length; i += 8192) q += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(q); };
+  const unb64 = (q) => Uint8Array.from(atob(q), (c) => c.charCodeAt(0));
+  function holoPipe() {
+    if (!holo.pipeP) holo.pipeP = (async () => {
+      holoMsg('Lade Tiefen-Modell (einmalig, 25–50 MB) …');
+      const TF = await import(HOLO_TF); holo.TF = TF;
+      const mk = (device, dtype) => TF.pipeline('depth-estimation', HOLO_MODEL, { device, dtype });
+      let pipe;
+      try { if (navigator.gpu) pipe = await mk('webgpu', 'fp16'); } catch (e) { console.warn('Tiefe WebGPU:', e); }
+      if (!pipe) pipe = await mk('wasm', 'q8');
+      holoMsg(''); return pipe;
+    })().catch((e) => { holo.pipeP = null; holoMsg(''); throw e; });
+    return holo.pipeP;
+  }
+  // Tiefe für das aktuelle Videobild: Bytes 0 (fern) bis 255 (nah), Zeilen von unten nach oben (für die Textur)
+  // Alle Modell-Aufrufe nacheinander: gleichzeitige Läufe (Live-Tiefe + Scan) brechen sonst mit „Session already started“ ab
+  holo.lock = Promise.resolve();
+  const holoExclusive = (fn) => { const p = holo.lock.then(fn, fn); holo.lock = p.catch(() => {}); return p; };
+  const holoDepth = (v) => holoExclusive(async () => {
+    try { return await holoDepthRaw(v); }
+    catch (e) { console.warn('Tiefe, neuer Versuch:', e); holo.pipeP = null; return await holoDepthRaw(v); }
+  });
+  async function holoDepthRaw(v) {
+    const pipe = await holoPipe(), TF = holo.TF;
+    const k = Math.min(1, 392 / Math.max(v.videoWidth, v.videoHeight));
+    const c = holo.tmp || (holo.tmp = document.createElement('canvas'));
+    c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    const out = await pipe(await TF.RawImage.fromCanvas(c));
+    const t = out.predicted_depth, dims = t.dims.slice(-2), dh = dims[0], dw = dims[1], d = t.data;
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < d.length; i++) { if (d[i] < mn) mn = d[i]; if (d[i] > mx) mx = d[i]; }
+    holo.lo = holo.lo == null ? mn : holo.lo + (mn - holo.lo) * 0.15; holo.hi = holo.hi == null ? mx : holo.hi + (mx - holo.hi) * 0.15;
+    const sc = 160 / Math.max(v.videoWidth, v.videoHeight), ow = Math.max(8, Math.round(v.videoWidth * sc)), oh = Math.max(8, Math.round(v.videoHeight * sc));
+    const o = new Uint8Array(ow * oh), span = (holo.hi - holo.lo) || 1;
+    for (let y = 0; y < oh; y++) {
+      const row = Math.min(dh - 1, ((oh - 1 - y) * dh / oh) | 0) * dw;
+      for (let x = 0; x < ow; x++) o[y * ow + x] = Math.max(0, Math.min(255, ((d[row + ((x * dw / ow) | 0)] - holo.lo) / span) * 255));
+    }
+    return { w: ow, h: oh, data: o };
+  }
+  function holoSetDepth(d) {
+    const T = holo.T, id = d.w + 'x' + d.h;
+    if (holo.dsize !== id) {
+      if (holo.dtex) holo.dtex.dispose();
+      const tx = new T.DataTexture(new Uint8Array(d.data), d.w, d.h, T.RedFormat, T.UnsignedByteType);
+      tx.magFilter = tx.minFilter = T.LinearFilter; tx.unpackAlignment = 1; tx.needsUpdate = true;
+      holo.dtex = tx; holo.dsize = id; holo.mat.uniforms.dm.value = tx; return;
+    }
+    holo.dtex.image.data.set(d.data); holo.dtex.needsUpdate = true;
+  }
+  function holoFetch(key) {
+    holo.scans[key] = null;
+    fetch('/api/vscan?key=' + key).then(async (r) => {
+      if (!r.ok) return;
+      const j = await r.json(); j.frames = j.frames.map(unb64); if (j.masks) j.masks = j.masks.map(unb64); holo.scans[key] = j;
+      holoMsg('Gespeicherte Tiefe geladen'); setTimeout(() => holoMsg(''), 1800);
+    }).catch(() => {});
+  }
+  const HOLO_VS = `varying vec2 vUv; varying float vD; varying float vE; varying vec3 vP; uniform sampler2D dm; uniform float uAmt; uniform vec2 uTexel;
+    void main() { vUv = uv; float d = texture2D(dm, uv).r; vD = d; vec3 p = position;
+      // Tiefensprung zu den Nachbarpunkten: dort würde das Gitter beim Schwenken zu Streifen gezogen
+      float e = 0.0; vec2 o[4]; o[0] = vec2(uTexel.x, 0.0); o[1] = vec2(-uTexel.x, 0.0); o[2] = vec2(0.0, uTexel.y); o[3] = vec2(0.0, -uTexel.y);
+      for (int i = 0; i < 4; i++) e = max(e, abs(texture2D(dm, clamp(uv + o[i], 0.0, 1.0)).r - d));
+      vE = e; p.z = (d - 0.5) * uAmt; vP = p;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`;
+  const HOLO_FS = `varying vec2 vUv; varying float vD; varying float vE; varying vec3 vP; uniform vec3 uCam; uniform vec2 uSize; uniform float uAmt; uniform sampler2D vid; uniform sampler2D mk; uniform sampler2D dm; uniform sampler2D pl; uniform float uFill; uniform float uPlate; uniform float uCut; uniform float uLook; uniform float uTime;
+    void main() {
+      if (uCut > 0.5 && texture2D(mk, vUv).r < 0.5) discard;
+      vec3 c;
+      if (vE > 0.09 || fwidth(vD) > 0.08) {
+        // Lücke hinter einem nahen Teil: ergänzten Hintergrund (Platte) an derselben Stelle nehmen, sonst Farbe vom fernsten Nachbarpunkt
+        if (uFill < 0.5 || uCut > 0.5) discard;
+        if (uPlate > 0.5) {
+          // Blickstrahl von der Kamera durch diesen Punkt bis zur hintersten Ebene: dort liegt der ergänzte Hintergrund
+          vec3 dir = vP - uCam; float zb = -0.5 * uAmt;
+          vec2 h = abs(dir.z) > 1e-5 ? (uCam + dir * ((zb - uCam.z) / dir.z)).xy : vP.xy;
+          c = texture2D(pl, clamp(h / uSize + 0.5, 0.0, 1.0)).rgb;
+        } else {
+        vec2 best = vUv; float bd = 2.0;
+        for (int i = 0; i < 16; i++) {
+          float a = float(i) * 0.3927; float r = (i < 8 ? 0.025 : 0.05);
+          vec2 q = clamp(vUv + vec2(cos(a), sin(a)) * r, 0.0, 1.0);
+          float d = texture2D(dm, q).r;
+          if (d < bd) { bd = d; best = q; }
+        }
+        c = texture2D(vid, best).rgb * 0.92; }
+      } else c = texture2D(vid, vUv).rgb;
+      float g = dot(c, vec3(0.3, 0.59, 0.11));
+      vec3 holo = vec3(g) * vec3(0.55, 0.92, 1.0) * 1.3 + vec3(0.0, 0.05, 0.08) * vD;
+      c = mix(c, holo, uLook);
+      c *= 1.0 - uLook * 0.12 * (0.5 + 0.5 * sin(vUv.y * 700.0 + uTime * 4.0));
+      gl_FragColor = vec4(c, 1.0);
+    }`;
+  // Person freistellen: Maske (255 = Person) über das Selfie-Modell, gleiche Klassenlogik wie beim Personen-Ausschnitt
+  async function holoMaskLow(v) {
+    const seg = await loadSeg();
+    const mask = seg.segmentForVideo(v, performance.now());
+    const m = mask.categoryMask, arr = m.getAsUint8Array(), w = m.width, h = m.height;
+    let on = 0;
+    for (let i = 0; i < arr.length; i++) if (arr[i]) on++;
+    const inv = on / arr.length > 0.6, o = new Uint8Array(arr.length);
+    // Zeilen von unten nach oben (Textur), sonst steht die Maske auf dem Kopf
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) o[(h - 1 - y) * w + x] = (arr[y * w + x] ? 1 : 0) !== (inv ? 1 : 0) ? 255 : 0;
+    m.close && m.close();
+    return { w, h, data: o };
+  }
+  // Besseres Modell: RMBG-1.4 (weiche Ränder, Haare, Hände) auf WebGPU; ohne WebGPU oder bei Fehler das einfache Modell
+  const RMBG = 'briaai/RMBG-1.4', RMBG_DT = ['fp16', 'fp32'];
+  function holoSegModel() {
+    if (!holo.segP) holo.segP = (async () => {
+      holoMsg('Lade Freisteller-Modell (einmalig, ~90 MB) …');
+      const TF = holo.TF || (holo.TF = await import(HOLO_TF));
+      const model = await TF.AutoModel.from_pretrained(RMBG, { config: { model_type: 'custom' }, device: 'webgpu', dtype: RMBG_DT[holo.segI || 0] });
+      const proc = await TF.AutoProcessor.from_pretrained(RMBG, { config: { do_normalize: true, do_pad: false, do_rescale: true, do_resize: true, image_mean: [0.5, 0.5, 0.5], feature_extractor_type: 'ImageFeatureExtractor', image_std: [1, 1, 1], resample: 2, rescale_factor: 0.00392156862745098, size: { width: 1024, height: 1024 } } });
+      holoMsg(''); return { model, proc };
+    })().catch((e) => { holo.segP = null; holoMsg(''); throw e; });
+    return holo.segP;
+  }
+  const h2f = (h) => { const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 31, f = h & 1023; return e === 0 ? s * 5.960464477539063e-8 * f : e === 31 ? (f ? NaN : s * Infinity) : s * Math.pow(2, e - 15) * (1 + f / 1024); };
+  async function holoMaskHq(v) {
+    for (;;) {
+      try {
+        const { model, proc } = await holoSegModel(), TF = holo.TF;
+        const k = Math.min(1, 768 / Math.max(v.videoWidth, v.videoHeight));
+        const c = holo.tmp2 || (holo.tmp2 = document.createElement('canvas'));
+        c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        const { pixel_values } = await proc(await TF.RawImage.fromCanvas(c));
+        const { output } = await model({ input: pixel_values });
+        const dm = output.dims, H = dm[dm.length - 2], W = dm[dm.length - 1], src = output.data;
+        const half = src instanceof Uint16Array;
+        const sc = 288 / Math.max(W, H), mw = Math.max(8, Math.round(v.videoWidth / Math.max(v.videoWidth, v.videoHeight) * 288)), mh = Math.max(8, Math.round(v.videoHeight / Math.max(v.videoWidth, v.videoHeight) * 288));
+        const o = new Uint8Array(mw * mh);
+        for (let y = 0; y < mh; y++) {
+          // Zeilen von unten nach oben (Textur); jeweils 2x2 Werte mitteln
+          const sy = Math.min(H - 2, ((mh - 1 - y) / mh * H) | 0);
+          for (let x = 0; x < mw; x++) {
+            const sx = Math.min(W - 2, (x / mw * W) | 0), i = sy * W + sx;
+            const a = half ? (h2f(src[i]) + h2f(src[i + 1]) + h2f(src[i + W]) + h2f(src[i + W + 1])) / 4 : (src[i] + src[i + 1] + src[i + W] + src[i + W + 1]) / 4;
+            o[y * mw + x] = Math.max(0, Math.min(255, a * 255));
+          }
+        }
+        return { w: mw, h: mh, data: o };
+      } catch (e) {
+        holo.segP = null; holo.segI = (holo.segI || 0) + 1;
+        if (holo.segI >= RMBG_DT.length) throw e;
+        console.warn('Freisteller, nächste Genauigkeit:', e);
+      }
+    }
+  }
+  async function holoMask(v) {
+    if (navigator.gpu && !holo.segFail) {
+      try { return await holoExclusive(() => holoMaskHq(v)); }
+      catch (e) { console.warn('RMBG:', e); holo.segFail = true; toast('Besseres Freistell-Modell nicht verfügbar, nehme das einfache', 'error'); }
+    }
+    return holoMaskLow(v);
+  }
+  // Hintergrund hinter der Person ergänzen (LaMa, nur beim „Gründlich“-Scan): pro Plattenbild ein JPEG
+  const LAMA = 'https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx', ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.webgpu.bundle.min.mjs';
+  function holoLama() {
+    if (!holo.lamaP) holo.lamaP = (async () => {
+      const ort = await import(ORT);
+      holoMsg('Lade Hintergrund-Modell (einmalig, ~200 MB) …');
+      const r = await fetch(LAMA); if (!r.ok) throw new Error('Modell-Download ' + r.status);
+      const tot = +r.headers.get('content-length') || 0, rd = r.body.getReader(), parts = []; let got = 0;
+      for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; if (tot) holoMsg('Lade Hintergrund-Modell ' + Math.round(got / tot * 100) + ' %'); }
+      const buf = new Uint8Array(got); let o = 0; for (const q of parts) { buf.set(q, o); o += q.length; }
+      let sess;
+      try { sess = await ort.InferenceSession.create(buf, { executionProviders: ['webgpu', 'wasm'] }); } catch (e) { console.warn('LaMa WebGPU:', e); sess = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] }); }
+      holoMsg(''); return { ort, sess };
+    })().catch((e) => { holo.lamaP = null; holoMsg(''); throw e; });
+    return holo.lamaP;
+  }
+  // Maske (255 = Person, Zeilen von unten nach oben) -> Loch-Maske 512x512 (oben nach unten), leicht vergrößert
+  function holoHole(m) {
+    const N = 512, a = new Uint8Array(N * N);
+    for (let y = 0; y < N; y++) { const row = (m.h - 1 - ((y / N * m.h) | 0)) * m.w; for (let x = 0; x < N; x++) a[y * N + x] = m.data[row + ((x / N * m.w) | 0)] > 30 ? 1 : 0; }
+    // großzügig vergrößern, damit keine Haar- oder Randreste der Person im Hintergrund landen
+    const R = 16, t = new Uint8Array(N * N), b = new Uint8Array(N * N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { let v = 0; for (let k = -R; k <= R && !v; k++) { const xx = x + k; if (xx >= 0 && xx < N && a[y * N + xx]) v = 1; } t[y * N + x] = v; }
+    for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) { let v = 0; for (let k = -R; k <= R && !v; k++) { const yy = y + k; if (yy >= 0 && yy < N && t[yy * N + x]) v = 1; } b[y * N + x] = v; }
+    return b;
+  }
+  async function holoPlate(v, m) {
+    const { ort, sess } = await holoLama(), N = 512, P = N * N;
+    const c = holo.tmp3 || (holo.tmp3 = document.createElement('canvas')); c.width = c.height = N;
+    const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(v, 0, 0, N, N);
+    const px = cx.getImageData(0, 0, N, N), hole = holoHole(m), img = new Float32Array(3 * P), mk = new Float32Array(P);
+    for (let i = 0; i < P; i++) { img[i] = px.data[i * 4] / 255; img[P + i] = px.data[i * 4 + 1] / 255; img[2 * P + i] = px.data[i * 4 + 2] / 255; mk[i] = hole[i]; }
+    const nm = sess.inputNames, iName = nm.find((n) => /image|img/i.test(n)) || nm[0], mName = nm.find((n) => /mask/i.test(n)) || nm[1];
+    const res = await holoExclusive(() => sess.run({ [iName]: new ort.Tensor('float32', img, [1, 3, N, N]), [mName]: new ort.Tensor('float32', mk, [1, 1, N, N]) }));
+    const out = res[sess.outputNames[0]].data; let mx = 0; for (let i = 0; i < P; i += 97) mx = Math.max(mx, out[i], out[P + i], out[2 * P + i]);
+    const k = mx <= 1.5 ? 255 : 1;
+    for (let i = 0; i < P; i++) if (hole[i]) for (let ch = 0; ch < 3; ch++) px.data[i * 4 + ch] = Math.max(0, Math.min(255, out[ch * P + i] * k));
+    cx.putImageData(px, 0, 0);
+    const o = document.createElement('canvas'); o.width = o.height = 384; o.getContext('2d').drawImage(c, 0, 0, 384, 384);
+    return o.toDataURL('image/jpeg', 0.85);
+  }
+  async function holoSetPlate(i, url) {
+    const T = holo.T;
+    if (!holo.back || !url) return;
+    const bmp = await createImageBitmap(await (await fetch(url)).blob());
+    if (!holo.back || holo.pidx !== i) { bmp.close(); return; }
+    if (!holo.pcv) { holo.pcv = document.createElement('canvas'); holo.pcv.width = holo.pcv.height = 384; holo.ptex = new T.CanvasTexture(holo.pcv); holo.back.material.map = holo.ptex; holo.back.material.needsUpdate = true; if (holo.mat) holo.mat.uniforms.pl.value = holo.ptex; }
+    holo.pcv.getContext('2d').drawImage(bmp, 0, 0, 384, 384); bmp.close(); holo.ptex.needsUpdate = true; holo.pready = true;
+  }
+  function holoSetMask(d) {
+    const T = holo.T, id = d.w + 'x' + d.h;
+    if (!holo.mat) return;
+    if (holo.msize !== id) {
+      if (holo.mtex) holo.mtex.dispose();
+      const tx = new T.DataTexture(d.data.slice(), d.w, d.h, T.RedFormat, T.UnsignedByteType);
+      tx.unpackAlignment = 1; tx.minFilter = tx.magFilter = T.LinearFilter; tx.needsUpdate = true;
+      holo.mtex = tx; holo.msize = id; holo.mat.uniforms.mk.value = tx; return;
+    }
+    holo.mtex.image.data.set(d.data); holo.mtex.needsUpdate = true;
+  }
+  function holoBind(v) {
+    const T = holo.T;
+    if (holo.v) holo.v.classList.remove('holo-src');
+    if (holo.mesh) { holo.scene.remove(holo.mesh); holo.mesh.geometry.dispose(); holo.mat.dispose(); holo.vtex.dispose(); if (holo.dtex) holo.dtex.dispose(); if (holo.mtex) holo.mtex.dispose(); if (holo.back) { holo.back.geometry.dispose(); holo.back.material.dispose(); } if (holo.ptex) holo.ptex.dispose(); holo.back = holo.ptex = holo.pcv = null; holo.pidx = -1; holo.pready = false; holo.mesh = null; holo.dtex = null; holo.mtex = null; holo.msize = ''; holo.midx = -1; }
+    holo.v = v; holo.key = v ? (v._hkey || avKey(v) + '-d') : ''; holo.idx = -1; holo.dsize = ''; holo.lo = holo.hi = null; holo.noLive = false;
+    if (!v) { holo.cv.remove(); return; }
+    v.parentElement.appendChild(holo.cv); v.classList.add('holo-src');
+    const a = v.videoWidth / v.videoHeight; holo.a = a;
+    const geo = new T.PlaneGeometry(a, 1, 160, Math.max(8, Math.round(160 / a)));
+    holo.vtex = new T.VideoTexture(v); holo.vtex.colorSpace = T.NoColorSpace;
+    holo.dtex = new T.DataTexture(new Uint8Array([128]), 1, 1, T.RedFormat, T.UnsignedByteType); holo.dtex.unpackAlignment = 1; holo.dtex.needsUpdate = true; holo.dsize = '1x1';
+    holo.mtex = new T.DataTexture(new Uint8Array([255]), 1, 1, T.RedFormat, T.UnsignedByteType); holo.mtex.unpackAlignment = 1; holo.mtex.needsUpdate = true; holo.msize = '1x1';
+    holo.mat = new T.ShaderMaterial({ uniforms: { vid: { value: holo.vtex }, dm: { value: holo.dtex }, mk: { value: holo.mtex }, uTexel: { value: new T.Vector2(1 / 160, 1 / Math.max(8, Math.round(160 / a))) }, pl: { value: null }, uCam: { value: new T.Vector3(0, 0, 2) }, uSize: { value: new T.Vector2(a, 1) }, uFill: { value: 1 }, uPlate: { value: 0 }, uCut: { value: 0 }, uAmt: { value: 0.25 }, uLook: { value: 0 }, uTime: { value: 0 } },
+      vertexShader: HOLO_VS, fragmentShader: HOLO_FS, side: T.DoubleSide });
+    holo.mesh = new T.Mesh(geo, holo.mat); holo.scene.add(holo.mesh);
+    // Kameraposition (pro Auge in VR) im Koordinatensystem des Gitters, für den Hintergrund mit Parallaxe
+    holo.mesh.onBeforeRender = (r, s, cam) => { const u = holo.mat.uniforms.uCam.value; u.setFromMatrixPosition(cam.matrixWorld); holo.mesh.worldToLocal(u); holo.mat.uniformsNeedUpdate = true; };
+    holo.back = new T.Mesh(new T.PlaneGeometry(a, 1), new T.MeshBasicMaterial({ side: T.DoubleSide })); holo.back.visible = false; holo.mesh.add(holo.back);
+  }
+  function holoLoop(t) {
+    if (!holo.on) return;
+    if (!holo.xr) { holo.raf = requestAnimationFrame(holoLoop); if (document.hidden) return; }
+    const v = holo.ext || avVideo(), good = v && v.videoWidth && v.readyState >= 2 ? v : null;
+    if (good !== holo.v) holoBind(good);
+    if (!holo.mesh) return;
+    const cv = holo.cv, w = cv.clientWidth, h = cv.clientHeight, cam = holo.cam;
+    if (!holo.xr && w && h && (cv._w !== w || cv._h !== h)) { cv._w = w; cv._h = h; holo.ren.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
+    const sc = holo.scans[holo.key];
+    if (sc === undefined) holoFetch(holo.key);
+    if (sc && sc.frames) {
+      const i = Math.min(sc.frames.length - 1, Math.max(0, Math.round(holo.v.currentTime * sc.fps)));
+      if (i !== holo.idx) { holo.idx = i; holoSetDepth({ w: sc.w, h: sc.h, data: sc.frames[i] }); }
+    } else if (sc === null && !holo.scanning && !holo.busy && !holo.noLive) {
+      if (!navigator.gpu) { holo.noLive = true; holoMsg('Keine Tiefe gespeichert: am PC „Tiefe scannen“ drücken'); }
+      else if (performance.now() - holo.last > 100) {
+        holo.busy = true;
+        holoDepth(holo.v).then(holoSetDepth).catch((e) => { console.warn('Tiefe:', e); holo.noLive = true; holoMsg('Tiefe nicht berechenbar'); })
+          .finally(() => { holo.busy = false; holo.last = performance.now(); });
+      }
+    }
+    const cut = $('#holoCut').checked;
+    if (cut) {
+      if (sc && sc.masks && sc.masks.length) {
+        const i = Math.min(sc.masks.length - 1, Math.max(0, Math.round(holo.v.currentTime * sc.fps)));
+        if (i !== holo.midx) { holo.midx = i; holoSetMask({ w: sc.mw, h: sc.mh, data: sc.masks[i] }); }
+      } else if (!holo.scanning && !holo.mbusy && performance.now() - (holo.mlast || 0) > 50) {
+        holo.mbusy = true;
+        holoMask(holo.v).then(holoSetMask).catch((e) => { console.warn('Freistellen:', e); $('#holoCut').checked = false; toast('Freistellen nicht verfügbar', 'error'); })
+          .finally(() => { holo.mbusy = false; holo.mlast = performance.now(); });
+      }
+    }
+    {
+      const nP = sc && sc.plates ? sc.plates.length : 0;
+      if (nP) {
+        const pi = Math.min(nP - 1, Math.max(0, Math.round(holo.v.currentTime * sc.fps / sc.pstep)));
+        if (pi !== holo.pidx) { holo.pidx = pi; let j = pi; while (j > 0 && !sc.plates[j]) j--; holoSetPlate(pi, sc.plates[j]).catch(() => {}); }
+      }
+      const usePlate = !!(nP && holo.pready && $('#holoFill').checked && !cut);
+      holo.mat.uniforms.uPlate.value = usePlate ? 1 : 0; holo.back.visible = false;
+      holo.back.position.z = -0.5 * ($('#holoAmt').value / 100 * 0.5) - 0.004;
+    }
+    holo.mat.uniforms.uCut.value = cut ? 1 : 0; holo.mat.uniforms.uFill.value = $('#holoFill').checked ? 1 : 0;
+    if (holo.xr) {
+      holo.mesh.position.copy(holo.pos); holo.mesh.rotation.y = holo.rotY; holo.mesh.scale.setScalar(1.3);
+      holo.mat.uniforms.uAmt.value = $('#holoAmt').value / 100 * 0.5; holo.mat.uniforms.uLook.value = $('#holoLook').value / 100; holo.mat.uniforms.uTime.value = t / 1000;
+      holo.ren.render(holo.scene, cam); return;
+    }
+    holo.mesh.position.set(0, 0, 0); holo.mesh.rotation.y = 0; holo.mesh.scale.setScalar(1);
+    holo.cx += (fxMx - holo.cx) * 0.12; holo.cy += (fxMy - holo.cy) * 0.12;
+    const ca = cam.aspect, dist = Math.max(1, holo.a / ca) * 1.1 / (2 * Math.tan(15 * Math.PI / 180)), ax = holo.cx * 0.4, ay = holo.cy * 0.28;
+    cam.position.set(Math.sin(ax) * dist, -Math.sin(ay) * dist, Math.cos(ax) * Math.cos(ay) * dist); cam.lookAt(0, 0, 0);
+    const u = holo.mat.uniforms; u.uAmt.value = $('#holoAmt').value / 100 * 0.5; u.uLook.value = $('#holoLook').value / 100; u.uTime.value = t / 1000;
+    holo.ren.render(holo.scene, cam);
+  }
+  async function holoStart() {
+    try {
+      holo.T = holo.T || await import('three');
+      const T = holo.T;
+      if (!holo.ren) {
+        holo.cv = document.createElement('canvas'); holo.cv.className = 'holo';
+        holo.ren = new T.WebGLRenderer({ canvas: holo.cv, alpha: true, antialias: true }); holo.ren.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+        holo.scene = new T.Scene(); holo.cam = new T.PerspectiveCamera(30, 1, 0.1, 50);
+      }
+    } catch (e) { console.warn('Hologramm:', e); toast('Hologramm konnte nicht starten', 'error'); return; }
+    root.classList.add('holo'); holo.on = true;
+    if (!root.classList.contains('fx3d')) { store.set('rs-3d', '1'); applyFx(true); }
+    holo.raf = requestAnimationFrame(holoLoop);
+  }
+  function holoStop() {
+    if (holo.xr) holo.xr.end();
+    holo.on = false; holo.scanning = false; cancelAnimationFrame(holo.raf); root.classList.remove('holo'); holoMsg('');
+    if (holo.cv) holoBind(null);
+    if (holo.ext) { holo.ext.pause(); holo.ext.remove(); holo.ext = null; $('#scanView').hidden = true; }
+  }
+  async function holoScan() {
+    if (holo.scanning) { holo.scanning = false; return; }
+    const v = holo.v;
+    if (!v || !isFinite(v.duration) || v.duration <= 0) { toast('Kein Video zum Scannen', 'error'); return; }
+    if (!isFinite(v.duration) || v.duration <= 0) await new Promise((res) => { v.addEventListener('loadedmetadata', res, { once: true }); setTimeout(res, 4000); });
+    if (!isFinite(v.duration) || v.duration <= 0) { toast('Video ist noch nicht geladen', 'error'); return; }
+    const key = holo.key, fps = 5, n = Math.min(Math.floor(v.duration * fps), 300), btn = $('#holoScan');
+    const wasPaused = v.paused, t0 = v.currentTime, frames = [], masks = [], plates = [], PSTEP = 3; let deep = $('#holoQ').value === 'deep' && !holo.lamaFail, lm = null, dw = 0, dh = 0, mw = 0, mh = 0, done = false, maskBad = false;
+    let thumb = ''; try { const tc = document.createElement('canvas'), tk = 220 / Math.max(v.videoWidth, v.videoHeight); tc.width = Math.round(v.videoWidth * tk); tc.height = Math.round(v.videoHeight * tk); tc.getContext('2d').drawImage(v, 0, 0, tc.width, tc.height); thumb = tc.toDataURL('image/jpeg', 0.7); } catch {}
+    holo.scanning = true; btn.textContent = 'Abbrechen'; v.pause(); holo.lo = holo.hi = null;
+    try {
+      for (let i = 0; i < n && holo.scanning; i++) {
+        holoMsg('Tiefe ' + Math.round(i / n * 100) + ' % (' + i + '/' + n + ')');
+        await avSeek(v, i / fps);
+        const d = await holoDepth(v); dw = d.w; dh = d.h; frames.push(b64(d.data));
+        try { const m = await holoMask(v); lm = m; if (mw && (m.w !== mw || m.h !== mh)) maskBad = true; mw = m.w; mh = m.h; masks.push(b64(m.data)); } catch (e) { maskBad = true; }
+        if (deep && i % PSTEP === 0) {
+          try {
+            holoMsg('Hintergrund ' + Math.round(i / n * 100) + ' % (' + i + '/' + n + ')');
+            if (!lm) throw new Error('keine Personen-Maske'); plates.push(await holoPlate(v, lm));
+          } catch (e) { console.warn('Hintergrund:', e); holo.lamaFail = true; deep = false; plates.length = 0; toast('Hintergrund-Modell fehlgeschlagen: ' + (e && e.message || e), 'error'); }
+        }
+      }
+      done = holo.scanning;
+    } catch (e) { console.warn('Tiefen-Scan:', e); toast('Tiefen-Scan fehlgeschlagen: ' + (e && e.message || e), 'error'); }
+    if (done) {
+      const hasM = !maskBad && masks.length === frames.length && mw > 0;
+      const payload = { v: 1, key, fps, w: dw, h: dh, frames };
+      if (hasM) { payload.mw = mw; payload.mh = mh; payload.masks = masks; }
+      if (deep && plates.length) { payload.plates = plates; payload.pstep = PSTEP; }
+      holo.scans[key] = Object.assign({}, payload, { frames: frames.map(unb64), masks: hasM ? masks.map(unb64) : undefined, plates: payload.plates, pstep: PSTEP });
+      try {
+        holoMsg('Speichere auf dem Server …');
+        const gz = await new Response(new Blob([JSON.stringify(payload)]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+        const r = await fetch('/api/vscan?key=' + key, { method: 'PUT', body: gz });
+        toast(r.ok ? 'Tiefe gespeichert (' + Math.round(gz.size / 1024) + ' KB)' : 'Tiefe nur lokal, Server lehnt ab', r.ok ? 'info' : 'error');
+        if (r.ok) fetch('/api/vscan/meta?key=' + key, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: v._hurl || v.currentSrc || v.src, thumb, dur: v.duration, w: v.videoWidth, h: v.videoHeight, deep: !!payload.plates }) }).catch(() => {});
+      } catch { toast('Tiefe nur lokal, Speichern fehlgeschlagen', 'error'); }
+    }
+    holo.scanning = false; btn.textContent = 'Tiefe scannen'; holoMsg('');
+    await avSeek(v, t0); if (!wasPaused) v.play().catch(() => {});
+  }
+  // ---------- Bereich „Gescannte Videos“ ----------
+  function scanViewClose() { holoStop(); }
+  async function scanOpen(e) {
+    $('#scanList').hidden = true;
+    const stage = $('#scanView'); stage.hidden = false; stage.textContent = '';
+    const v = document.createElement('video');
+    v.className = 'media'; v.setAttribute('playsinline', ''); v.loop = true; v.muted = false; v._hkey = e.key; v._hurl = e.meta.url; v.src = e.meta.url;
+    v.addEventListener('error', () => toast('Video lässt sich nicht mehr laden (Adresse abgelaufen?)', 'error'));
+    stage.onclick = () => { if (holo.ext) { holo.ext.paused ? holo.ext.play().catch(() => {}) : holo.ext.pause(); } };
+    stage.appendChild(v); holo.ext = v;
+    if (!holo.on) await holoStart();
+    v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+  }
+  async function scanListOpen() {
+    const box = $('#scanList'), grid = $('#scanGrid'); box.hidden = false; grid.textContent = 'Lade …';
+    let list = [];
+    try { list = ((await (await fetch('/api/vscan/list')).json()).scans || []).filter((x) => x.key.endsWith('-d') && x.meta && x.meta.url); } catch { grid.textContent = 'Liste konnte nicht geladen werden'; return; }
+    list.sort((a, b) => b.time - a.time); grid.textContent = '';
+    if (!list.length) { grid.textContent = 'Noch nichts gescannt. Neue Tiefen-Scans erscheinen hier (ältere ohne Video-Adresse nicht).'; return; }
+    for (const e of list) {
+      const c = document.createElement('div'); c.className = 'scard';
+      const im = document.createElement('img'); im.src = e.meta.thumb || ''; im.alt = '';
+      const cap = document.createElement('div'); cap.className = 'cap';
+      cap.textContent = (e.meta.dur ? Math.round(e.meta.dur) + ' s · ' : '') + Math.round(e.bytes / 1024) + ' KB' + (e.meta.deep ? ' · Hintergrund' : '');
+      const d = document.createElement('button'); d.className = 'del'; d.type = 'button'; d.textContent = '×'; d.title = 'Scan löschen';
+      d.addEventListener('click', async (ev) => { ev.stopPropagation(); if (!confirm('Diesen Scan löschen?')) return; await fetch('/api/vscan?key=' + e.key, { method: 'DELETE' }).catch(() => {}); delete holo.scans[e.key]; c.remove(); });
+      c.append(im, cap, d); c.addEventListener('click', () => scanOpen(e)); grid.appendChild(c);
+    }
+  }
+  $('#scanListBtn').addEventListener('click', scanListOpen);
+  $('#scanListClose').addEventListener('click', () => { $('#scanList').hidden = true; });
+  $('#scanBack').addEventListener('click', () => { scanViewClose(); scanListOpen(); });
+  async function holoEnterAr() {
+    if (holo.xr || !holo.mesh) return;
+    try {
+      const T = holo.T, ren = holo.ren;
+      const session = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      ren.xr.enabled = true; ren.xr.setReferenceSpaceType('local-floor');
+      await ren.xr.setSession(session); holo.xr = session;
+      holo.pos = new T.Vector3(0, 1.3, -1.2); holo.rotY = 0;
+      cancelAnimationFrame(holo.raf); ren.setAnimationLoop(holoLoop);
+      const ctrl = ren.xr.getController(0); holo.scene.add(ctrl);
+      // Auslöser: Hologramm dorthin stellen, wohin der Controller zeigt (Augenhöhe, Blick zu dir)
+      session.addEventListener('select', () => {
+        const p = new T.Vector3(), d = new T.Vector3(0, 0, -1).applyQuaternion(ctrl.getWorldQuaternion(new T.Quaternion()));
+        ctrl.getWorldPosition(p);
+        holo.pos.set(p.x + d.x * 1.4, Math.max(0.9, p.y + d.y * 1.4), p.z + d.z * 1.4); holo.rotY = Math.atan2(p.x - holo.pos.x, p.z - holo.pos.z);
+      });
+      session.addEventListener('end', () => {
+        holo.xr = null; ren.xr.enabled = false; holo.scene.remove(ctrl); ren.setAnimationLoop(null);
+        holo.cv._w = 0; if (holo.on) holo.raf = requestAnimationFrame(holoLoop);
+      });
+    } catch (e) { console.warn('Hologramm-AR:', e); holo.xr = null; toast('AR konnte nicht gestartet werden', 'error'); }
+  }
+  $('#holoAr').addEventListener('click', holoEnterAr);
+  if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-ar').then((ok) => { if (ok) $('#holoAr').hidden = false; }).catch(() => {});
+  { const q = $('#holoQ'); q.value = store.get('rs-holo-q') || 'fast'; q.addEventListener('change', () => store.set('rs-holo-q', q.value)); }
+  { const f = $('#holoFill'); f.checked = store.get('rs-holo-f') !== '0'; f.addEventListener('change', () => store.set('rs-holo-f', f.checked ? '1' : '0')); }
+  { const c = $('#holoCut'); c.checked = store.get('rs-holo-c') === '1'; c.addEventListener('change', () => store.set('rs-holo-c', c.checked ? '1' : '0')); }
+  $('#holoBtn').addEventListener('click', () => { if (holo.on) holoStop(); else holoStart(); });
+  $('#holoClose').addEventListener('click', holoStop);
+  $('#holoScan').addEventListener('click', holoScan);
+  for (const [id, k, d] of [['#holoAmt', 'rs-holo-a', '50'], ['#holoLook', 'rs-holo-l', '30']]) {
+    const el_ = $(id); el_.value = store.get(k) || d; el_.addEventListener('input', () => store.set(k, el_.value));
+  }
 
   // ---------- Start ----------
   const savedSort = store.get('rs-sort');
@@ -2345,5 +3389,6 @@
   });
 })();
 </script>
+<script>/* Als „Shorts“ in der Pornhub-Seite eingebettet: Link zurück dorthin ist überflüssig */ if (window.top !== window) document.querySelectorAll('a[target="_top"][href="/"]').forEach((a) => a.remove());</script>
 </body>
 </html>
