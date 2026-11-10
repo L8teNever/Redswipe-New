@@ -89,14 +89,17 @@ return out};"#;
 /// Profilbild des Uploaders aus einem Dokument lesen (leer, wenn keines gefunden wird).
 const AVA_JS: &str = r#"const avaOf=(doc)=>{const c=['img#getAvatar','.avatarWrapper img','.userAvatar img','.profileHeader img.avatar','.topProfileHeader img','#profileHeader img','img[class*="avatar" i]'];
 for(const q of c){const i=doc.querySelector(q);const u=i&&(i.getAttribute('data-src')||i.getAttribute('src'));if(u&&/^(https?:)?\/\//.test(u)&&!u.startsWith('data:'))return u.startsWith('//')?'https:'+u:u}
-const m=doc.querySelector('meta[property="og:image"]');const u=m&&m.getAttribute('content');return u&&/phncdn\.com/.test(u)?u:''};"#;
+const m=doc.querySelector('meta[property="og:image"]');const u=m&&m.getAttribute('content');return u&&/phncdn\.com/.test(u)?u:''};
+const statsOf=(doc)=>{const o=[];const t=e=>e?e.textContent.replace(/\s+/g,' ').trim():'';
+for(const b of doc.querySelectorAll('.infoBoxes .infoBox:not(.rankDetails)')){const v=t(b.querySelector('.big')),l=t(b.querySelector('.title'));if(v&&l)o.push({l,v,f:(b.getAttribute('data-title')||'').split(':').pop().trim()})}
+const sc=t(doc.querySelector('.showingCounter'));const m=sc.match(/of\s+([\d,.]+)/i);if(m)o.push({l:'Videos',v:m[1],f:m[1]});return o};"#;
 
 /// Liest die Video-Kacheln der geöffneten Seite aus (läuft im Browser, nach PARSE_JS).
 const LIST_TAIL_JS: &str = r#"(()=>{const out=parse(document);
 const user=document.querySelector('#headerUserInfo, .userAvatar, [data-login-user], .profileUserName');
 const login=!!(document.querySelector('a[href*="/logout"]')||user||document.cookie.includes('il='));
 const h1=document.querySelector('h1');
-return {ok:true,items:out,login,url:location.href,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document)}})()"#;
+return {ok:true,items:out,login,url:location.href,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document),stats:statsOf(document)}})()"#;
 
 /// Alle Seiten eines Uploaders einsammeln (für die Suche in seinen Videos): Folgeseiten parallel
 /// im eingeloggten Tab nachladen, höchstens 30 Seiten bzw. ~28 s.
@@ -112,7 +115,7 @@ const batch=[];for(let i=p;i<Math.min(p+6,last+1);i++)batch.push(fetch(u(i),{cre
 if(/not found/i.test(d.title)||/error/i.test((d.querySelector('h1')||{}).textContent||''))return[];return parse(d)}).catch(()=>[]));
 const res=await Promise.all(batch);let got=0;for(const r of res)got+=add(r);if(!got)break;}
 const h1=document.querySelector('h1');
-return {ok:true,items:out,partial,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document)}})()"#;
+return {ok:true,items:out,partial,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document),stats:statsOf(document)}})()"#;
 
 /// Personen-Suche (Pornstars und Models) auslesen.
 const PEOPLE_JS: &str = r#"(()=>{const out=[],seen=new Set();
@@ -242,7 +245,7 @@ async fn search_user(url: &str, q: &str, page: u32, path: &str, cats: &[(&str, &
             words.iter().all(|w| t.contains(w.as_str())) && keep.as_ref().is_none_or(|k| it["key"].as_str().is_some_and(|x| k.contains(x)))
         })
         .collect();
-    Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "avatar": v["avatar"].clone(), "searched": total, "partial": partial })).into_response()
+    Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "avatar": v["avatar"].clone(), "stats": v["stats"].clone(), "searched": total, "partial": partial })).into_response()
 }
 
 /// Personen suchen (Pornstars und Models).
@@ -364,6 +367,7 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             "page": page,
             "name": v["name"].clone(),
             "avatar": v["avatar"].clone(),
+            "stats": v["stats"].clone(),
         }))
         .into_response()
         }
