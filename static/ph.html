@@ -28,6 +28,16 @@
   .ib:hover { background: rgba(255,255,255,.08); }
   .brand { font-weight: 700; font-size: 17px; letter-spacing: .2px; margin-right: 6px; white-space: nowrap; }
   .brand b { background: var(--acc); color: var(--on-acc); border-radius: 6px; padding: 1px 6px; margin-left: 2px; }
+  .shbar { display: none; align-items: center; gap: 8px; margin-left: auto; }
+  body.sh .shbar { display: flex; }
+  .shsrc { height: 40px; border: 0; border-radius: 20px; background: var(--surf); color: inherit; font: inherit; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 10px; cursor: pointer; max-width: 40vw; }
+  .shsrc:hover { background: rgba(255,255,255,.12); }
+  .shsrc svg, .shgrp svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
+  .shsrc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shsrc small { color: var(--tx-2); font-weight: 400; white-space: nowrap; }
+  .shgrp { display: flex; gap: 2px; padding: 3px; background: var(--surf); border-radius: 24px; }
+  .shgrp .ib { width: 38px; height: 38px; color: inherit; }
+  @media (max-width: 640px) { .shsrc small { display: none; } .shsrc { max-width: 30vw; } }
   .tabs { display: flex; gap: 4px; padding: 4px; background: var(--surf); border-radius: 24px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { height: 38px; padding: 0 16px; border-radius: 19px; border: 0; background: transparent; cursor: pointer; font-weight: 600; color: var(--tx-2);
@@ -226,6 +236,7 @@
     <button class="tab" type="button" data-k="search"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span class="tl">Suche</span></button>
     <button class="tab" type="button" data-k="shorts"><svg viewBox="0 0 24 24"><path d="M17.77 10.32l-1.2-.5L18 9.06a3.74 3.74 0 0 0-3.5-6.62L6 6.94a3.74 3.74 0 0 0 .23 6.74l1.2.49L6 14.93a3.75 3.75 0 0 0 3.5 6.63l8.5-4.5a3.74 3.74 0 0 0-.23-6.74zM10 14.65V9.35L15 12l-5 2.65z"/></svg><span class="tl">Shorts</span></button>
   </nav>
+  <div class="shbar" id="shBar"><button class="shsrc" type="button" data-t="srcBtn" title="Quelle wählen"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span id="shLbl">Mein Feed</span><small id="shSub"></small></button><div class="shgrp"><button class="ib" type="button" data-t="scanListBtn" title="Gescannte Videos" aria-label="Gescannte Videos"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button><button class="ib" type="button" data-t="holoBtn" title="Hologramm" aria-label="Hologramm"><svg viewBox="0 0 24 24"><path d="M12 2L2 12l10 10 10-10L12 2zm0 4.83L17.17 12 12 17.17 6.83 12 12 6.83z"/></svg></button><button class="ib" type="button" data-t="followSheetBtn" title="Gefolgte Creator" aria-label="Gefolgte Creator"><svg viewBox="0 0 24 24"><path d="M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z"/></svg></button><button class="ib" type="button" data-t="moreBtn" title="Weitere Werkzeuge" aria-label="Weitere Werkzeuge"><svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg></button><button class="ib" type="button" data-t="setBtn" title="Einstellungen" aria-label="Einstellungen"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button></div></div>
   <form class="search" hidden><input id="q" type="search" placeholder="Suchen …" enterkeyhint="search" autocomplete="off"></form>
 </header>
 <iframe id="shorts" hidden title="Shorts" allow="autoplay; fullscreen; xr-spatial-tracking; clipboard-write" allowfullscreen></iframe>
@@ -501,6 +512,22 @@
   // ---------- Shorts (Redswipe eingebettet) ----------
   const shortsEl = $('#shorts');
   function shortsPos() { const h = document.querySelector('header').offsetHeight; shortsEl.style.top = h + 'px'; shortsEl.style.height = (innerHeight - h) + 'px'; }
+  const SH_CSS = '#appbar{top:0!important;left:0!important;right:10px!important}#appbar>#srcBtn,#appbar>.group,#appbar>.spacer{display:none!important}#moreMenu{top:6px!important}';
+  function shortsBind() {
+    let d; try { d = shortsEl.contentDocument; } catch { return; }
+    if (!d || !d.head || d.getElementById('phEmbedCss')) return;
+    const st = d.createElement('style'); st.id = 'phEmbedCss'; st.textContent = SH_CSS; d.head.appendChild(st);
+    const sync = () => {
+      const l = d.getElementById('srcLabel'), u = d.getElementById('srcSort');
+      $('#shLbl').textContent = (l && l.textContent.trim()) || 'Quelle'; $('#shSub').textContent = (u && u.textContent.trim()) || '';
+      const m = d.getElementById('moreBtn'); $('#shBar [data-t="moreBtn"]').style.background = m && m.getAttribute('aria-expanded') === 'true' ? 'rgba(255,255,255,.14)' : '';
+    };
+    sync(); new MutationObserver(sync).observe(d.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-expanded'] });
+  }
+  shortsEl.addEventListener('load', shortsBind);
+  document.querySelectorAll('#shBar [data-t]').forEach((b) => b.addEventListener('click', () => {
+    try { const t = shortsEl.contentDocument.getElementById(b.dataset.t); if (t) t.click(); } catch {}
+  }));
   function shortsPause() { try { shortsEl.contentDocument.querySelectorAll('video, audio').forEach((v) => v.pause()); } catch {} }
   addEventListener('resize', () => { if (kind === 'shorts') shortsPos(); });
 
