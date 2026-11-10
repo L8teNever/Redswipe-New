@@ -86,12 +86,17 @@ const views=li.querySelector('.views var');
 seen.add(k);out.push({key:k,title,thumb,preview:img&&img.getAttribute('data-mediabook')||'',duration:dur?dur.textContent.trim():'',uploader:up?up.textContent.trim():'',upath,watched,views:views?views.textContent.trim():''});}
 return out};"#;
 
+/// Profilbild des Uploaders aus einem Dokument lesen (leer, wenn keines gefunden wird).
+const AVA_JS: &str = r#"const avaOf=(doc)=>{const c=['img#getAvatar','.avatarWrapper img','.userAvatar img','.profileHeader img.avatar','.topProfileHeader img','#profileHeader img','img[class*="avatar" i]'];
+for(const q of c){const i=doc.querySelector(q);const u=i&&(i.getAttribute('data-src')||i.getAttribute('src'));if(u&&/^(https?:)?\/\//.test(u)&&!u.startsWith('data:'))return u.startsWith('//')?'https:'+u:u}
+const m=doc.querySelector('meta[property="og:image"]');const u=m&&m.getAttribute('content');return u&&/phncdn\.com/.test(u)?u:''};"#;
+
 /// Liest die Video-Kacheln der geöffneten Seite aus (läuft im Browser, nach PARSE_JS).
 const LIST_TAIL_JS: &str = r#"(()=>{const out=parse(document);
 const user=document.querySelector('#headerUserInfo, .userAvatar, [data-login-user], .profileUserName');
 const login=!!(document.querySelector('a[href*="/logout"]')||user||document.cookie.includes('il='));
 const h1=document.querySelector('h1');
-return {ok:true,items:out,login,url:location.href,name:h1?h1.textContent.trim().slice(0,80):''}})()"#;
+return {ok:true,items:out,login,url:location.href,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document)}})()"#;
 
 /// Alle Seiten eines Uploaders einsammeln (für die Suche in seinen Videos): Folgeseiten parallel
 /// im eingeloggten Tab nachladen, höchstens 30 Seiten bzw. ~28 s.
@@ -107,7 +112,7 @@ const batch=[];for(let i=p;i<Math.min(p+6,last+1);i++)batch.push(fetch(u(i),{cre
 if(/not found/i.test(d.title)||/error/i.test((d.querySelector('h1')||{}).textContent||''))return[];return parse(d)}).catch(()=>[]));
 const res=await Promise.all(batch);let got=0;for(const r of res)got+=add(r);if(!got)break;}
 const h1=document.querySelector('h1');
-return {ok:true,items:out,partial,name:h1?h1.textContent.trim().slice(0,80):''}})()"#;
+return {ok:true,items:out,partial,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document)}})()"#;
 
 /// Personen-Suche (Pornstars und Models) auslesen.
 const PEOPLE_JS: &str = r#"(()=>{const out=[],seen=new Set();
@@ -174,7 +179,7 @@ async fn crawl_cached(url: &str) -> Result<Value, Response> {
     if let Some(v) = cached {
         return Ok(v);
     }
-    match browser::eval_in_page(url, &format!("{PARSE_JS}{CRAWL_TAIL_JS}")).await {
+    match browser::eval_in_page(url, &format!("{PARSE_JS}{AVA_JS}{CRAWL_TAIL_JS}")).await {
         Ok(v) if v["ok"].as_bool() == Some(true) => {
             let mut c = CACHE.lock().unwrap();
             let m = c.get_or_insert_with(HashMap::new);
@@ -237,7 +242,7 @@ async fn search_user(url: &str, q: &str, page: u32, path: &str, cats: &[(&str, &
             words.iter().all(|w| t.contains(w.as_str())) && keep.as_ref().is_none_or(|k| it["key"].as_str().is_some_and(|x| k.contains(x)))
         })
         .collect();
-    Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "searched": total, "partial": partial })).into_response()
+    Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "avatar": v["avatar"].clone(), "searched": total, "partial": partial })).into_response()
 }
 
 /// Personen suchen (Pornstars und Models).
@@ -348,7 +353,7 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             return search_user(&url, q, page, p.path.as_deref().unwrap_or(""), &cats).await;
         }
     }
-    match browser::eval_in_page(&url, &format!("{PARSE_JS}{LIST_TAIL_JS}")).await {
+    match browser::eval_in_page(&url, &format!("{PARSE_JS}{AVA_JS}{LIST_TAIL_JS}")).await {
         Ok(v) if v["ok"].as_bool() == Some(true) => {
             // Ohne Login leitet Pornhub die Abo-Seite auf eine andere Liste um: dann nichts zeigen
             let landed = v["url"].as_str().unwrap_or("");
@@ -358,6 +363,7 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             "login": v["login"].as_bool() == Some(true) && !lost,
             "page": page,
             "name": v["name"].clone(),
+            "avatar": v["avatar"].clone(),
         }))
         .into_response()
         }

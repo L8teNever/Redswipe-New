@@ -191,7 +191,7 @@
   .cpf { display: flex; gap: 8px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
   .cpf .btn { margin: 0; }
   .cpf .ghost { background: var(--surf-2); color: var(--tx); }
-  .ava { width: 44px; height: 44px; border-radius: 22px; background: var(--acc); color: var(--on-acc); display: grid; place-items: center; font-weight: 800; font-size: 18px; flex: none; text-transform: uppercase; }
+  .ava { width: 44px; height: 44px; border-radius: 22px; background: var(--acc) center / cover no-repeat; color: var(--on-acc); display: grid; place-items: center; font-weight: 800; font-size: 18px; flex: none; text-transform: uppercase; }
   .uhead h2 { margin: 0; font-size: 20px; line-height: 1.2; }
   .uhead small { color: var(--tx-2); font-size: 12.5px; }
   /* Leiste unter dem Video */
@@ -324,6 +324,7 @@
       page++;
       if (kind === 'user') $('#uInfo').textContent = (uq || userCats.length) ? (d.searched ? (d.items || []).length + ' Treffer' + (uq ? ' für „' + uq + '“' : '') + (userCats.length ? ' in ' + userCats.map((c) => c.name).join(' + ') : '') + ' unter ' + d.searched + ' Videos' + (d.partial ? ' (nicht alle durchsucht)' : '') : 'Suche …') : 'Alle Videos';
       if (kind === 'user' && d.name) { $('#uName').textContent = d.name; document.title = d.name + ' · Pornhub'; }
+      if (kind === 'user' && d.avatar) setAva(d.avatar);
       const items = (d.items || []).filter((it) => !seen.has(it.key));
       items.forEach((it) => { seen.add(it.key); grid.appendChild(card(it)); });
       foot.replaceChildren();
@@ -532,11 +533,16 @@
     reload();
   });
   uQ.addEventListener('input', () => { if (!uQ.value && uq) { uq = ''; if (!userCats.length) $('#uInfo').textContent = 'Alle Videos'; reload(); } });
+  function setAva(u) {
+    const a = $('#uAva'), i = new Image(); i.alt = '';
+    i.onload = () => { if (a.dataset.u === upath) { a.textContent = ''; a.style.backgroundImage = 'url("' + px(u) + '")'; } };
+    i.src = px(u);
+  }
   function openUser(path, name) {
     if (kind === 'user' && upath === path) return;
     upath = path; uq = ''; userCats = []; uQ.value = ''; $('#uInfo').textContent = 'Alle Videos';
     const n = name || path.split('/').pop();
-    $('#uName').textContent = n; $('#uAva').textContent = n.charAt(0);
+    $('#uName').textContent = n; $('#uAva').textContent = n.charAt(0); $('#uAva').style.backgroundImage = ''; $('#uAva').dataset.u = path;
     setKind('user');
   }
   const homeKind = () => TABS.includes(store.get('ph-kind', 'home')) ? store.get('ph-kind', 'home') : 'home';
