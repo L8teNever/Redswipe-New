@@ -44,11 +44,15 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
             const dur = (card.querySelector('[class*="duration"], [class*="time"], time') || {}).innerText || '';
             const uploader = (card.querySelector('[class*="model"], [class*="author"], a[href*="/models/"]') || {}).innerText || '';
             const views = (card.querySelector('[class*="views"]') || {}).innerText || '';
-            const preview = a.getAttribute('data-preview') || (card.querySelector('video') || {}).src || '';
+            const attrUrl = (el, re) => { for (const at of el.attributes) { if (/^https?:\/\//.test(at.value) && re.test(at.value)) return at.value; } return ''; };
+            let thumb = attrUrl(img, /\.(jpe?g|webp|png)/i);
+            if (!thumb && img.src && !img.src.startsWith('data:')) thumb = img.src;
+            let preview = attrUrl(a, /\.mp4/i) || attrUrl(img, /\.mp4/i);
+            if (!preview) { const pe = card.querySelector('[data-preview], [data-video], video'); if (pe) preview = attrUrl(pe, /\.mp4/i) || ''; }
             list.push({
                 key: 'pb:' + m[1],
                 title,
-                thumb: (img.src || img.getAttribute('data-src') || '').replace(/\?.*$/, ''),
+                thumb: thumb.replace(/\?.*$/, ''),
                 duration: dur.trim().replace(/\s+/g, ' '),
                 uploader: uploader.trim().replace(/\s+/g, ' '),
                 views: views.trim(),
