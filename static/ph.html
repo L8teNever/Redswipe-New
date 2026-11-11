@@ -138,6 +138,26 @@
   .prog .knob { position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--acc); transform: scale(0); transition: transform .15s; }
   .prog:hover .knob, .prog.drag .knob, .touch .prog .knob { transform: scale(1); }
   .pill .i-on, .pill.on .i-off { display: none; }
+  /* Modern Clean Custom Dropdown Menu */
+  .cmenu { position: relative; display: inline-flex; }
+  .cmenu-btn { height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid var(--line); background: var(--surf); color: var(--tx); display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; cursor: pointer; transition: background .18s, border-color .18s, transform .12s; user-select: none; }
+  .cmenu-btn:hover { background: var(--surf-2); border-color: rgba(255,255,255,.2); }
+  .cmenu-btn:active { transform: scale(.98); }
+  .cmenu-btn svg { width: 18px; height: 18px; fill: currentColor; opacity: .85; flex: none; }
+  .cmenu-btn .cmenu-arr { width: 18px; height: 18px; opacity: .6; margin-left: 2px; }
+  .cmenu-pop { position: absolute; right: 0; top: calc(100% + 6px); min-width: 170px; max-height: 360px; overflow-y: auto; background: rgba(28,24,25,.96); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--line); border-radius: 16px; padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,.7); z-index: 50; display: flex; flex-direction: column; gap: 2px; animation: cmenuPop .15s cubic-bezier(.2,0,0,1); }
+  @keyframes cmenuPop { from { opacity: 0; transform: translateY(-4px) scale(.97); } }
+  .cmenu-pop[hidden] { display: none; }
+  .cmenu-item { height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--tx); display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; cursor: pointer; text-align: left; width: 100%; transition: background .12s, color .12s; white-space: nowrap; }
+  .cmenu-item:hover { background: rgba(255,255,255,.08); }
+  .cmenu-item.on { background: var(--acc); color: var(--on-acc); }
+  .cmenu-item .cmenu-check { width: 16px; font-weight: 800; font-size: 13px; text-align: center; }
+  .cmenu-item small { color: var(--tx-2); font-weight: 400; margin-left: auto; padding-left: 10px; font-size: 11.5px; }
+  .cmenu-item.on small { color: rgba(26,17,0,.75); }
+  .srcb { position: absolute; left: 8px; top: 8px; border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; box-shadow: 0 2px 6px rgba(0,0,0,.45); pointer-events: none; z-index: 2; }
+  .srcb.pb { background: #e91e63; color: #fff; }
+  .srcb.ph { background: #ff9900; color: #1a1100; }
+  .thumb:has(.srcb) .offb, .card:has(.srcb) .offb { top: 32px; }
   .offb { position: absolute; left: 8px; top: 8px; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,.75); color: var(--acc); border-radius: 6px; padding: 2px 6px 2px 4px; font-size: 11.5px; font-weight: 700; }
   .offb svg { width: 14px; height: 14px; fill: currentColor; }
   .offdel { position: absolute; right: 6px; top: 6px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(0,0,0,.75); color: #fff; display: grid; place-items: center; cursor: pointer; }
@@ -258,9 +278,22 @@
 <body>
 <div id="veil" role="button" tabindex="0" aria-label="Seite anzeigen"><div><svg viewBox="0 0 24 24"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92A11.8 11.8 0 0 0 22.99 12C21.26 7.61 16.99 4.5 12 4.5c-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>Tippen zum Anzeigen</div></div>
 <header>
-  <span class="brand">Porn<b>hub</b></span>
+  <span class="brand">Red<b>swipe</b></span>
+  <div class="cmenu" id="srcMenu">
+    <button class="cmenu-btn" id="srcBtn" type="button" title="Quelle wählen" aria-haspopup="true">
+      <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+      <span class="cmenu-lbl" id="srcLbl">Alle</span>
+      <svg class="cmenu-arr" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+    </button>
+    <div class="cmenu-pop" id="srcPop" hidden>
+      <button class="cmenu-item" type="button" data-src="all"><span class="cmenu-check">✓</span><span>Alle Quellen</span><small>PH + PB</small></button>
+      <button class="cmenu-item" type="button" data-src="ph"><span class="cmenu-check"></span><span>Pornhub</span><small>PH</small></button>
+      <button class="cmenu-item" type="button" data-src="pb"><span class="cmenu-check"></span><span>PimpBunny</span><small>PB</small></button>
+    </div>
+  </div>
   <nav class="tabs" role="tablist">
     <button class="tab" type="button" data-k="home"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg><span class="tl">Startseite</span></button>
+    <button class="tab" type="button" data-k="pb"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg><span class="tl">PimpBunny</span></button>
     <button class="tab" type="button" data-k="subs"><svg viewBox="0 0 24 24"><path d="M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z"/></svg><span class="tl">Abos</span></button>
     <button class="tab" type="button" data-k="favs"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg><span class="tl">Favoriten</span></button>
     <button class="tab" type="button" data-k="search"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span class="tl">Suche</span></button>
@@ -268,7 +301,7 @@
     <button class="tab" type="button" data-k="offline"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg><span class="tl">Offline</span></button>
   </nav>
   <div class="shbar" id="shBar"><button class="shsrc" type="button" data-t="srcBtn" title="Quelle wählen"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span id="shLbl">Mein Feed</span><small id="shSub"></small></button><div class="shgrp"><button class="ib" type="button" data-t="scanListBtn" title="Gescannte Videos" aria-label="Gescannte Videos"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button><button class="ib" type="button" data-t="holoBtn" title="Hologramm" aria-label="Hologramm"><svg viewBox="0 0 24 24"><path d="M12 2L2 12l10 10 10-10L12 2zm0 4.83L17.17 12 12 17.17 6.83 12 12 6.83z"/></svg></button><button class="ib" type="button" data-t="followSheetBtn" title="Gefolgte Creator" aria-label="Gefolgte Creator"><svg viewBox="0 0 24 24"><path d="M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z"/></svg></button><button class="ib" type="button" data-t="moreBtn" title="Weitere Werkzeuge" aria-label="Weitere Werkzeuge"><svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg></button><button class="ib" type="button" data-t="setBtn" title="Einstellungen" aria-label="Einstellungen"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button></div></div>
-  <form class="search" hidden><input id="q" type="search" placeholder="Suchen …" enterkeyhint="search" autocomplete="off"></form>
+  <form class="search" hidden><input id="q" type="search" placeholder="Suchen …" enterkeyhint=\"search\" autocomplete=\"off\"></form>
 </header>
 <iframe id="shorts" hidden title="Shorts" allow="autoplay; fullscreen; xr-spatial-tracking; clipboard-write" allowfullscreen></iframe>
 <main><div class="uhead" id="uHead" hidden><div class="ava" id="uAva"></div><div class="un"><h2 id="uName"></h2><small id="uInfo">Alle Videos</small><div class="ustats" id="uStats"></div></div><button class="pill" type="button" id="uSub" hidden><svg viewBox="0 0 24 24"><path class="i-off" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/><path class="i-on" d="M9 17l3-2.94c-.39-.04-.68-.06-1-.06-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4m4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41z"/></svg><span>Abonnieren</span></button><form class="usearch" id="uForm"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><input id="uQ" type="search" placeholder="In diesen Videos suchen …" enterkeyhint="search" autocomplete="off"></form></div><div class="sorts" id="sorts" hidden></div><div class="grid" id="grid"></div><div id="foot"></div></main>
@@ -293,7 +326,14 @@
   <div class="bar">
     <button class="ib" id="pBack" type="button" aria-label="Zurück"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
     <div class="pt"><b id="pTitle"></b><span id="pSub"></span></div>
-    <select id="pQ" aria-label="Qualität"></select>
+    <div class="cmenu" id="pQMenu">
+      <button class="cmenu-btn" id="pQBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Qualität wählen">
+        <svg viewBox="0 0 24 24"><path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 11H9.5v-2h-2v2H6V9h1.5v2.5h2V9H11v6zm7-1c0 .55-.45 1-1 1h-4V9h4c.55 0 1 .45 1 1v4zm-1.5-3.5h-2v3h2v-3z"/></svg>
+        <span class="cmenu-lbl" id="pQLbl">Auto</span>
+        <svg class="cmenu-arr" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
+      </button>
+      <div class="cmenu-pop" id="pQPop" hidden></div>
+    </div>
   </div>
   <div class="stage"><video id="pv" playsinline autoplay></video>
     <div class="gz" id="gz"></div>
@@ -332,15 +372,64 @@
   const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
   const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
-  const TABS = ['home', 'subs', 'favs', 'search', 'shorts', 'offline'];
-  const PATHS = { home: '/', subs: '/abos', favs: '/favoriten', search: '/suche', shorts: '/shorts', offline: '/offline' };
+  const TABS = ['home', 'pb', 'subs', 'favs', 'search', 'shorts', 'offline'];
+  const PATHS = { home: '/', pb: '/pimpbunny', subs: '/abos', favs: '/favoriten', search: '/suche', shorts: '/shorts', offline: '/offline' };
   const pathKind = () => { const p = location.pathname.replace(/\/+$/, '') || '/'; return TABS.find((k) => PATHS[k] === p) || 'home'; };
   function syncUrl(k) { if (PATHS[k] && (location.pathname.replace(/\/+$/, '') || '/') !== PATHS[k]) history.pushState(null, '', PATHS[k]); }
   const uHead = $('#uHead');
   let upath = '';
   let kind = store.get('ph-kind', 'home'), q = store.get('ph-q', ''), page = 0, busy = false, done = false, token = 0;
+  let srcFilter = store.get('ph-src', 'all');
   const seen = new Set();
   const canHover = matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+  // ---------- Dropdown-Menüs (.cmenu) ----------
+  function setupCmenu(btn, pop) {
+    if (!btn || !pop) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const closed = pop.hidden;
+      document.querySelectorAll('.cmenu-pop').forEach((p) => { if (p !== pop) p.hidden = true; });
+      document.querySelectorAll('.cmenu-btn').forEach((b) => { if (b !== btn) b.setAttribute('aria-expanded', 'false'); });
+      pop.hidden = !closed;
+      btn.setAttribute('aria-expanded', String(!closed));
+    });
+  }
+  setupCmenu($('#srcBtn'), $('#srcPop'));
+  setupCmenu($('#pQBtn'), $('#pQPop'));
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.cmenu')) {
+      document.querySelectorAll('.cmenu-pop').forEach((p) => p.hidden = true);
+      document.querySelectorAll('.cmenu-btn').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+    }
+  });
+
+  function updateSrcUi() {
+    const names = { all: 'Alle', ph: 'Pornhub', pb: 'PimpBunny' };
+    const lbl = $('#srcLbl'); if (lbl) lbl.textContent = names[srcFilter] || 'Alle';
+    document.querySelectorAll('#srcPop .cmenu-item').forEach((item) => {
+      const isIt = item.dataset.src === srcFilter;
+      item.classList.toggle('on', isIt);
+      const chk = item.querySelector('.cmenu-check');
+      if (chk) chk.textContent = isIt ? '✓' : '';
+    });
+  }
+  updateSrcUi();
+  document.querySelectorAll('#srcPop .cmenu-item').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      $('#srcPop').hidden = true;
+      $('#srcBtn').setAttribute('aria-expanded', 'false');
+      const val = item.dataset.src || 'all';
+      if (val === srcFilter) return;
+      srcFilter = val;
+      store.set('ph-src', val);
+      updateSrcUi();
+      if (kind === 'pb' && val !== 'pb') setKind('home');
+      else reload();
+    });
+  });
+
   // Hier im Player geöffnete Videos zusätzlich lokal als gesehen merken
   const watchedSet = new Set(JSON.parse(store.get('ph-watched', '[]') || '[]'));
   function markWatched(k) {
@@ -364,7 +453,12 @@
     busy = true; const my = token;
     foot.replaceChildren(el('div', 'loader'));
     try {
-      const p = new URLSearchParams({ kind, page: String(page + 1) }); if (kind === 'search') p.set('q', q.trim()); if (kind === 'user') { p.set('path', upath); if (uq) p.set('q', uq); } const so = sortOf(); if (so) p.set('sort', so);
+      const effSrc = kind === 'pb' ? 'pb' : (kind === 'home' || kind === 'search') ? srcFilter : '';
+      const p = new URLSearchParams({ kind: kind === 'pb' ? 'home' : kind, page: String(page + 1) });
+      if (effSrc) p.set('src', effSrc);
+      if (kind === 'search') p.set('q', q.trim());
+      if (kind === 'user') { p.set('path', upath); if (uq) p.set('q', uq); }
+      const so = sortOf(); if (so) p.set('sort', so);
       if (catsOn() && getCats().length) p.set('cats', getCats().map((c) => c.slug + (c.id ? '~' + c.id : '')).join(','));
       const r = await fetch('/api/ph/list?' + p);
       const d = await r.json().catch(() => ({}));
@@ -422,14 +516,98 @@
     return c;
   }
 
-  // ---------- Offline: Videos in der App speichern (Cache Storage, nur auf diesem Gerät) ----------
+  // ---------- Offline: Videos in der App speichern (Cache Storage + resumable IndexedDB) ----------
   const OFFC = 'ph-offline', offUrl = (k, ext) => '/__offline/' + k + '.' + ext;
   let offMeta = {}; try { offMeta = JSON.parse(store.get('ph-off', '{}')) || {}; } catch {}
   const offSave = () => store.set('ph-off', JSON.stringify(offMeta));
   const offHas = (k) => !!(offMeta[k] && offMeta[k].done);
-  const offJobs = new Map(); // key -> { pct, ctl }
+  const offJobs = new Map(); // key -> { pct, got, ctl }
   const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2).replace('.', ',') + ' GB' : Math.round(n / 1e6) + ' MB';
   const OFF_IC = '<svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg>';
+
+  const idb = {
+    db: null,
+    open() {
+      if (this.db) return Promise.resolve(this.db);
+      return new Promise((res, rej) => {
+        const r = indexedDB.open('ph_offline_v2', 1);
+        r.onupgradeneeded = () => {
+          const d = r.result;
+          if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'key' });
+          if (!d.objectStoreNames.contains('parts')) {
+            const ps = d.createObjectStore('parts', { keyPath: ['key', 'idx'] });
+            ps.createIndex('key', 'key');
+          }
+        };
+        r.onsuccess = () => { this.db = r.result; res(this.db); };
+        r.onerror = () => rej(r.error);
+      });
+    },
+    async getMeta(key) {
+      try {
+        const db = await this.open();
+        return new Promise((res) => {
+          const tx = db.transaction('meta', 'readonly');
+          const req = tx.objectStore('meta').get(key);
+          req.onsuccess = () => res(req.result || null);
+          req.onerror = () => res(null);
+        });
+      } catch { return null; }
+    },
+    async setMeta(val) {
+      try {
+        const db = await this.open();
+        return new Promise((res, rej) => {
+          const tx = db.transaction('meta', 'readwrite');
+          tx.objectStore('meta').put(val);
+          tx.oncomplete = () => res();
+          tx.onerror = () => rej(tx.error);
+        });
+      } catch {}
+    },
+    async putPart(key, idx, chunk) {
+      const db = await this.open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('parts', 'readwrite');
+        tx.objectStore('parts').put({ key, idx, chunk });
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    },
+    async getBlob(key) {
+      const db = await this.open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('parts', 'readonly');
+        const req = tx.objectStore('parts').index('key').getAll(IDBKeyRange.only(key));
+        req.onsuccess = () => {
+          const parts = (req.result || []).sort((a, b) => a.idx - b.idx);
+          res(new Blob(parts.map((p) => p.chunk), { type: 'video/mp4' }));
+        };
+        req.onerror = () => rej(req.error);
+      });
+    },
+    async clearKey(key) {
+      try {
+        const db = await this.open();
+        return new Promise((res) => {
+          const tx = db.transaction(['meta', 'parts'], 'readwrite');
+          tx.objectStore('meta').delete(key);
+          const store = tx.objectStore('parts');
+          const req = store.index('key').openKeyCursor(IDBKeyRange.only(key));
+          req.onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (cursor) {
+              store.delete(cursor.primaryKey);
+              cursor.continue();
+            }
+          };
+          tx.oncomplete = () => res();
+          tx.onerror = () => res();
+        });
+      } catch {}
+    }
+  };
+
   function offBadge(k) {
     document.querySelectorAll('.card[data-k="' + k + '"] .thumb').forEach((th) => {
       const b = th.querySelector('.offb'); if (offHas(k) && !b) { const x = el('span', 'offb'); x.innerHTML = OFF_IC + 'Offline'; th.appendChild(x); } else if (!offHas(k) && b) b.remove();
@@ -440,35 +618,135 @@
     if (offJobs.has(key) || offHas(key)) return;
     if (!window.caches) throw new Error('Dieser Browser kann keine Videos offline speichern.');
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch {}
-    const ctl = new AbortController(), job = { pct: 0, ctl }; offJobs.set(key, job); offUi();
+    const ctl = new AbortController(), job = { pct: 0, got: 0, ctl };
+    offJobs.set(key, job);
+    offUi();
     try {
       const c = await caches.open(OFFC);
       if (info.thumb) { try { const t = await fetch(px(info.thumb)); if (t.ok) await c.put(offUrl(key, 'jpg'), t); } catch {} }
-      const r = await fetch(px(src.url) + '&dl=', { signal: ctl.signal });
+
+      let meta = await idb.getMeta(key);
+      let got = 0, count = 0, total = 0;
+      if (meta && meta.srcUrl === src.url && meta.got > 0) {
+        got = meta.got;
+        count = meta.count || 0;
+        total = meta.total || 0;
+      } else {
+        await idb.clearKey(key);
+      }
+
+      const headers = {};
+      if (got > 0) headers['Range'] = 'bytes=' + got + '-';
+
+      const r = await fetch(px(src.url) + '&dl=', { headers, signal: ctl.signal });
       if (!r.ok || !r.body) throw new Error('Download fehlgeschlagen (HTTP ' + r.status + ')');
-      const total = +r.headers.get('content-length') || 0; let got = 0, last = 0;
-      const body = r.body.pipeThrough(new TransformStream({ transform(ch, tc) { got += ch.byteLength; if (Date.now() - last > 400) { last = Date.now(); job.got = got; job.pct = total ? Math.floor(got / total * 100) : -1; offUi(); } tc.enqueue(ch); } }));
-      await c.put(offUrl(key, 'mp4'), new Response(body, { headers: { 'Content-Type': 'video/mp4' } }));
+
+      if (got > 0 && r.status === 200) {
+        await idb.clearKey(key);
+        got = 0;
+        count = 0;
+      }
+
+      if (r.status === 206) {
+        const cr = r.headers.get('content-range');
+        if (cr) {
+          const m = cr.match(/\/(\d+)$/);
+          if (m) total = +m[1];
+        }
+      } else {
+        total = +r.headers.get('content-length') || 0;
+      }
+
+      job.got = got;
+      job.pct = total ? Math.floor(got / total * 100) : -1;
+      offUi();
+
+      meta = { key, srcUrl: src.url, title: info.title || '', uploader: info.uploader || '', upath: info.upath || '', duration: info.duration || '', thumb: info.thumb || '', q: src.q || 0, total, got, count, at: Date.now() };
+      await idb.setMeta(meta);
+
+      const reader = r.body.getReader();
+      let buf = [], bufLen = 0, lastUi = 0;
+      const CHUNK_MAX = 1024 * 1024; // 1 MB Parts
+
+      async function flushBuf() {
+        if (!bufLen) return;
+        const merged = new Uint8Array(bufLen);
+        let offset = 0;
+        for (const b of buf) {
+          merged.set(b, offset);
+          offset += b.byteLength;
+        }
+        buf = []; bufLen = 0;
+        await idb.putPart(key, count++, merged.buffer);
+      }
+
+      while (true) {
+        const { done: streamDone, value } = await reader.read();
+        if (streamDone) break;
+        buf.push(value);
+        bufLen += value.byteLength;
+        got += value.byteLength;
+        job.got = got;
+        if (total) job.pct = Math.floor(got / total * 100);
+
+        if (bufLen >= CHUNK_MAX) {
+          await flushBuf();
+          meta.got = got; meta.count = count;
+          await idb.setMeta(meta);
+        }
+
+        const now = Date.now();
+        if (now - lastUi > 400) {
+          lastUi = now;
+          offUi();
+        }
+      }
+
+      await flushBuf();
+      meta.got = got; meta.count = count;
+      await idb.setMeta(meta);
+
       if (total && got < total) throw new Error('Download abgebrochen');
+
+      const blob = await idb.getBlob(key);
+      await c.put(offUrl(key, 'mp4'), new Response(blob, { headers: { 'Content-Type': 'video/mp4' } }));
+      await idb.clearKey(key);
+
       offMeta[key] = { title: info.title || '', uploader: info.uploader || '', upath: info.upath || '', duration: info.duration || '', thumb: info.thumb || '', q: src.q || 0, size: got, at: Date.now(), done: true };
       offSave();
     } catch (e) {
-      try { const c = await caches.open(OFFC); await c.delete(offUrl(key, 'mp4')); await c.delete(offUrl(key, 'jpg')); } catch {}
       if (e.name !== 'AbortError') throw e;
-    } finally { offJobs.delete(key); offUi(); offBadge(key); }
+    } finally {
+      offJobs.delete(key);
+      offUi();
+      offBadge(key);
+    }
   }
   async function offDelete(key) {
     const j = offJobs.get(key); if (j) j.ctl.abort();
     try { const c = await caches.open(OFFC); await c.delete(offUrl(key, 'mp4')); await c.delete(offUrl(key, 'jpg')); } catch {}
+    await idb.clearKey(key);
     delete offMeta[key]; offSave(); offBadge(key); offUi();
   }
-  // Reste aufräumen: Einträge im Cache ohne fertige Metadaten (z. B. abgebrochener Download) löschen
+  // Reste aufräumen: Einträge im Cache ohne fertige Metadaten löschen
   (async () => { try { if (!window.caches) return; const c = await caches.open(OFFC); for (const req of await c.keys()) { const m = new URL(req.url).pathname.match(/^\/__offline\/([^.]+)\./); if (!m || !offHas(m[1])) await c.delete(req); } for (const k of Object.keys(offMeta)) if (!offHas(k)) delete offMeta[k]; offSave(); } catch {} })();
-  function offUi() { // Offline-Knopf im Player
+  async function offUi() { // Offline-Knopf im Player
     const b = $('#pOff'); if (!b || !curKey) return;
     const j = offJobs.get(curKey), has = offHas(curKey);
     b.classList.toggle('on', has); b.classList.toggle('busy', false);
-    b.lastChild.textContent = j ? 'Lädt … ' + (j.pct >= 0 ? j.pct + ' %' : mb(j.got || 0)) : has ? 'Offline gespeichert' : 'Offline';
+    if (j) {
+      b.lastChild.textContent = 'Lädt … ' + (j.pct >= 0 ? j.pct + ' %' : mb(j.got || 0));
+    } else if (has) {
+      b.lastChild.textContent = 'Offline gespeichert';
+    } else {
+      const pm = await idb.getMeta(curKey);
+      if (pm && pm.got > 0) {
+        const pct = pm.total ? Math.floor(pm.got / pm.total * 100) + ' %' : mb(pm.got);
+        b.lastChild.textContent = 'Fortsetzen (' + pct + ')';
+      } else {
+        b.lastChild.textContent = 'Offline';
+      }
+    }
   }
   function offList() {
     const keys = Object.keys(offMeta).filter(offHas).sort((a, b) => offMeta[b].at - offMeta[a].at);
@@ -497,6 +775,8 @@
     img.loading = 'lazy'; img.alt = ''; img.src = px(it.thumb);
     th.appendChild(img);
     if (it.duration) th.appendChild(el('span', 'dur', it.duration));
+    const isPb = (it.key && it.key.startsWith('pb:')) || it.src === 'pb';
+    th.appendChild(el('span', 'srcb ' + (isPb ? 'pb' : 'ph'), isPb ? 'PB' : 'PH'));
     c.append(th, el('div', 'ct', it.title));
     if (it.watched || watchedSet.has(it.key)) { c.classList.add('w'); th.appendChild(el('span', 'seen', 'Gesehen')); }
     if (offHas(it.key)) { const b = el('span', 'offb'); b.innerHTML = OFF_IC + 'Offline'; th.appendChild(b); }
@@ -713,7 +993,7 @@
   addEventListener('scroll', () => { if (innerHeight + scrollY > document.documentElement.scrollHeight - 900) more(); }, { passive: true });
 
   // ---------- Player ----------
-  const player = $('#player'), pv = $('#pv'), pMsg = $('#pMsg'), pQ = $('#pQ');
+  const player = $('#player'), pv = $('#pv'), pMsg = $('#pMsg'), pQPop = $('#pQPop'), pQLbl = $('#pQLbl'), pQBtn = $('#pQBtn');
   let hls = null, pTok = 0, hlsLib = null, curKey = '', toastT = 0;
   const pUp = $('#pUp'), pills = {}; document.querySelectorAll('.pill[data-a]').forEach((b) => { pills[b.dataset.a] = b; });
   const fmtN = (n) => !n ? '' : n >= 1e6 ? (n / 1e6).toFixed(1).replace('.0', '').replace('.', ',') + ' Mio.' : n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '').replace('.', ',') + 'K' : String(n);
@@ -746,8 +1026,32 @@
   }));
 
   // ---------- Herunterladen / Offline ----------
-  let curInfo = null, curSources = [];
-  const curSrc = () => curSources.find((x) => x.url === pQ.value) || curSources[0];
+  let curInfo = null, curSources = [], curQualityUrl = '';
+  const curSrc = () => curSources.find((x) => x.url === curQualityUrl) || curSources[0];
+
+  function renderQualityMenu(sources, activeUrl, onSelect) {
+    curQualityUrl = activeUrl;
+    pQPop.replaceChildren();
+    const cur = sources.find((s) => s.url === activeUrl) || sources[0];
+    pQLbl.textContent = cur ? (cur.q ? cur.q + 'p' : 'Auto') : 'Auto';
+    sources.forEach((s) => {
+      const isSel = s.url === activeUrl;
+      const it = el('button', 'cmenu-item' + (isSel ? ' on' : ''));
+      it.type = 'button';
+      const chk = el('span', 'cmenu-check', isSel ? '✓' : '');
+      const lbl = el('span', '', s.q ? s.q + 'p' : 'Auto');
+      it.append(chk, lbl);
+      if (s.q) it.appendChild(el('small', '', s.q >= 1080 ? 'HD+' : s.q >= 720 ? 'HD' : 'SD'));
+      it.onclick = (e) => {
+        e.stopPropagation();
+        pQPop.hidden = true;
+        pQBtn.setAttribute('aria-expanded', 'false');
+        renderQualityMenu(sources, s.url, onSelect);
+        onSelect(s);
+      };
+      pQPop.appendChild(it);
+    });
+  }
   $('#pDl').addEventListener('click', () => {
     const name = (curInfo && curInfo.title || 'video').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 150) || 'video', a = document.createElement('a');
     if (offBlob) { a.href = offBlob; a.download = name + '.mp4'; }
@@ -927,7 +1231,7 @@
     const my = ++pTok; if (hKey) hClose(); curKey = key; markWatched(key); hovHide(); hOpen(key);
     pUp.hidden = true; applyState({ up: 0, down: 0, fav: 0, sub: 0 }); $('#pLikes').textContent = ''; $('#pDislikes').textContent = ''; $('#pToast').hidden = true;
     player.hidden = false; document.body.style.overflow = 'hidden';
-    $('#pTitle').textContent = 'Lädt …'; $('#pSub').textContent = ''; pQ.replaceChildren(); pMsg.textContent = 'Video wird geladen …';
+    $('#pTitle').textContent = 'Lädt …'; $('#pSub').textContent = ''; pQPop.replaceChildren(); pQLbl.textContent = 'Auto'; pMsg.textContent = 'Video wird geladen …';
     curInfo = null; curSources = []; offUi();
     if (offHas(key)) {
       try {
@@ -936,10 +1240,11 @@
         if (r) {
           const m = offMeta[key], blob = await r.blob(); if (my !== pTok) return;
           curInfo = { title: m.title, uploader: m.uploader, upath: m.upath, duration: m.duration, thumb: m.thumb };
-          $('#pTitle').textContent = m.title || 'Video'; document.title = (m.title || 'Video') + ' · Pornhub';
+          const srcSite = (key.startsWith('pb:') || m.src === 'pb') ? 'PimpBunny' : 'Pornhub';
+          $('#pTitle').textContent = m.title || 'Video'; document.title = (m.title || 'Video') + ' · ' + srcSite;
           $('#pSub').textContent = [m.uploader, m.duration, 'offline gespeichert'].filter(Boolean).join(' · ');
           if (m.upath) { pUp.dataset.path = m.upath; pUp.dataset.name = m.uploader || ''; $('#pUpName').textContent = m.uploader; $('#pUpAva').textContent = (m.uploader || '?').charAt(0); pUp.hidden = false; }
-          const o = el('option', '', (m.q ? m.q + 'p ' : '') + 'offline'); pQ.appendChild(o); pQ.onchange = null;
+          renderQualityMenu([{ q: m.q, url: 'offline' }], 'offline', () => {});
           offThumb(key).then((u) => { if (u && my === pTok) pv.poster = u; });
           stop(); pMsg.textContent = ''; offBlob = URL.createObjectURL(blob); pv.src = offBlob; pv.play().catch(() => {});
           if (navigator.onLine) loadState(key);
@@ -953,7 +1258,8 @@
       if (my !== pTok) return;
       if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
       if (!d.sources || !d.sources.length) throw new Error('Kein Stream gefunden');
-      $('#pTitle').textContent = d.title || ''; document.title = (d.title || 'Video') + ' · Pornhub';
+      const srcSite = key.startsWith('pb:') ? 'PimpBunny' : 'Pornhub';
+      $('#pTitle').textContent = d.title || ''; document.title = (d.title || 'Video') + ' · ' + srcSite;
       const mins = d.duration ? Math.floor(d.duration / 60) + ':' + String(d.duration % 60).padStart(2, '0') : '';
       if (d.uploader && d.uploader.path) {
         pUp.dataset.path = d.uploader.path; pUp.dataset.name = d.uploader.name || '';
@@ -966,8 +1272,7 @@
       curSources = d.sources; curInfo = { title: d.title || '', uploader: d.uploader && d.uploader.name || '', upath: d.uploader && d.uploader.path || '', duration: mins, thumb: d.thumb || '' }; offUi();
       const want = +store.get('ph-quality', '720');
       let pick = d.sources.find((s) => s.q <= want) || d.sources[d.sources.length - 1];
-      d.sources.forEach((s) => { const o = el('option', '', s.q ? s.q + 'p' : 'Auto'); o.value = s.url; if (s === pick) o.selected = true; pQ.appendChild(o); });
-      pQ.onchange = () => { const s = d.sources.find((x) => x.url === pQ.value); if (s) store.set('ph-quality', String(s.q)); play(pQ.value); };
+      renderQualityMenu(d.sources, pick.url, (s) => { store.set('ph-quality', String(s.q)); play(s.url); });
       await play(pick.url);
     } catch (e) {
       if (my === pTok) { $('#pTitle').textContent = 'Video nicht ladbar'; pMsg.textContent = e.message; }
@@ -1020,7 +1325,7 @@
 
   // ---------- Gesehen-Heatmap: welche Stellen ohne Vorspulen angeschaut wurden (sammelt sich über alle Durchläufe) ----------
   const HB = 120, HMIN = 3; // Abschnitte je Video, Mindestlänge eines Laufs am Stück in Sekunden
-  let hKey = '', hBins = null, hRun = null, hSaveT = 0;
+  let hKey = '', hBins = null, hRun = null, hSaveT = 0, hDelta = null, hPushT = 0;
   const hLoad = (k) => { try { const a = JSON.parse(store.get('ph-heat:' + k, 'null')); return Array.isArray(a) && a.length === HB ? a : new Array(HB).fill(0); } catch { return new Array(HB).fill(0); } };
   function hSave() {
     if (!hKey || !hBins) return; hSaveT = Date.now();
@@ -1033,7 +1338,7 @@
   function hAdd(a, b) { // Strecke a..b (Sekunden) als gesehen gutschreiben: ein voller Abschnitt = +1
     const d = pv.duration; if (!hBins || !d || !isFinite(d) || b <= a) return;
     const w = d / HB;
-    for (let i = Math.max(0, Math.floor(a / w)); i < HB && i * w < b; i++) hBins[i] += Math.max(0, Math.min(b, (i + 1) * w) - Math.max(a, i * w)) / w;
+    for (let i = Math.max(0, Math.floor(a / w)); i < HB && i * w < b; i++) { const v = Math.max(0, Math.min(b, (i + 1) * w) - Math.max(a, i * w)) / w; if (hDelta) hDelta[i] += v; hBins[i] += v; }
   }
   function hFlush() { // laufenden Lauf abschließen (nur wenn er lang genug am Stück war)
     if (hRun && hRun.last - hRun.start >= HMIN) { hAdd(hRun.done, hRun.last); hSave(); hDraw(); }
@@ -1046,7 +1351,7 @@
     const dt = t - hRun.last;
     if (dt < 0 || dt > 2.5) { hFlush(); hRun = { start: t, last: t, done: t }; return; } // Sprung = gespult
     hRun.last = t;
-    if (t - hRun.start >= HMIN && t - hRun.done >= 2) { hAdd(hRun.done, t); hRun.done = t; hDraw(); if (Date.now() - hSaveT > 8000) hSave(); }
+    if (t - hRun.start >= HMIN && t - hRun.done >= 2) { hAdd(hRun.done, t); hRun.done = t; hDraw(); if (Date.now() - hSaveT > 8000) hSave(); if (Date.now() - hPushT > 20000) hPush(); }
   }
   function hDraw() {
     const svg = $('#pHeat'); if (!hBins) { svg.innerHTML = ''; return; }
@@ -1056,11 +1361,23 @@
     svg.innerHTML = '<path d="' + d + '"/>';
     svg.style.opacity = Math.min(0.85, 0.3 + 0.15 * mx).toFixed(2); // je öfter geschaut, desto kräftiger
   }
-  function hOpen(k) { hFlush(); hKey = k; hBins = hLoad(k); hDraw(); }
-  function hClose() { hFlush(); hSave(); hKey = ''; hBins = null; hDraw(); }
+  function hPush(unload) { // neu gesehene Anteile an den Server schicken (Datenbank dort, gilt für alle Geräte)
+    if (!hKey || !hDelta || !hDelta.some((v) => v > 0.01)) return;
+    const k = hKey, add = hDelta.map((v) => Math.min(50, Math.round(v * 100) / 100)); hDelta = new Array(HB).fill(0); hPushT = Date.now();
+    fetch('/api/heat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ k, add }), keepalive: !!unload })
+      .then((r) => r.ok ? r.json() : Promise.reject()).catch(() => { if (hKey === k && hDelta) add.forEach((v, i) => { hDelta[i] += v; }); });
+  }
+  function hOpen(k) {
+    hFlush(); hPush(); hKey = k; hBins = hLoad(k); hDelta = new Array(HB).fill(0); hDraw();
+    fetch('/api/heat?k=' + encodeURIComponent(k)).then((r) => r.ok ? r.json() : null).then((d) => {
+      if (!d || hKey !== k || !Array.isArray(d.bins) || d.bins.length !== HB) return;
+      hBins = d.bins.map((v, i) => v + (hDelta[i] || 0)); hDraw();
+    }).catch(() => {});
+  }
+  function hClose() { hFlush(); hSave(); hPush(); hKey = ''; hBins = null; hDelta = null; hDraw(); }
   pv.addEventListener('timeupdate', hTick);
   ['pause', 'seeking', 'emptied', 'ended', 'waiting'].forEach((e) => pv.addEventListener(e, hFlush));
-  addEventListener('pagehide', () => { hFlush(); hSave(); });
+  addEventListener('pagehide', () => { hFlush(); hSave(); hPush(true); });
   ['play', 'pause', 'volumechange'].forEach((e) => pv.addEventListener(e, () => { sync(); wake(); }));
   ['timeupdate', 'progress', 'durationchange', 'loadedmetadata'].forEach((e) => pv.addEventListener(e, progress));
   document.addEventListener('fullscreenchange', sync);

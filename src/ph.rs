@@ -21,15 +21,17 @@ const SITE: &str = "https://www.pornhub.com";
 
 #[derive(Deserialize)]
 pub struct ListQuery {
-    kind: Option<String>,
-    q: Option<String>,
-    page: Option<u32>,
+    pub kind: Option<String>,
+    pub q: Option<String>,
+    pub page: Option<u32>,
     /// Uploader-Pfad für kind=user, z. B. `/model/name`
-    path: Option<String>,
+    pub path: Option<String>,
     /// Sortierung: new, views, top, long (leer = Pornhubs Standard)
-    sort: Option<String>,
+    pub sort: Option<String>,
     /// Kategorien für kind=home, mit Komma getrennt, je `kurzname` oder `kurzname~id` (z. B. `amateur~3,milf~29`)
-    cats: Option<String>,
+    pub cats: Option<String>,
+    /// Quelle: ph (Standard), pb (PimpBunny) oder all/both
+    pub src: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -51,7 +53,11 @@ pub struct MediaQuery {
 }
 
 fn valid_key(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 40 && s.chars().all(|c| c.is_ascii_alphanumeric())
+    if let Some(rest) = s.strip_prefix("pb:") {
+        !rest.is_empty() && rest.len() <= 120 && rest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    } else {
+        !s.is_empty() && s.len() <= 40 && s.chars().all(|c| c.is_ascii_alphanumeric())
+    }
 }
 
 /// Uploader-Pfad wie `/model/name`, `/pornstar/name`, `/channels/name` oder `/users/name`.
@@ -298,6 +304,14 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
         return err(StatusCode::SERVICE_UNAVAILABLE, "Der Browser auf dem Server ist nicht eingerichtet.");
     }
     let page = p.page.unwrap_or(1).clamp(1, 200);
+    let src = p.src.as_deref().unwrap_or("ph");
+    if src == "pb" {
+        return match crate::pb::list(page, p.q.as_deref()).await {
+            Ok(items) => Json(json!({ "items": items, "page": page, "login": true })).into_response(),
+            Err(e) => browser_failed(e),
+        };
+    }
+    let is_both = src == "all" || src == "both";
     let subs = p.kind.as_deref() == Some("subs");
     let channel = p.path.as_deref().is_some_and(|x| x.starts_with("/channels/"));
     // Pornhubs `o=`-Werte je Liste (Kanäle nutzen eigene Kürzel und kennen „am längsten“ nicht)
@@ -372,8 +386,30 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             let last = v["lastPage"].as_u64().unwrap_or(0);
             let past = p.kind.as_deref() == Some("favs") && page > 1 && (cur < page as u64 || (last > 0 && page as u64 > last));
             let lost = lost || past;
+            let mut ph_items = if lost { vec![] } else { v["items"].as_array().cloned().unwrap_or_default() };
+            for it in &mut ph_items {
+                if let Some(obj) = it.as_object_mut() {
+                    obj.insert("src".to_string(), json!("ph"));
+                }
+            }
+            if is_both && (p.kind.as_deref().unwrap_or("home") == "home" || p.kind.as_deref() == Some("search")) {
+                if let Ok(pb_items) = crate::pb::list(page, p.q.as_deref()).await {
+                    let mut combined = Vec::with_capacity(ph_items.len() + pb_items.len());
+                    let mut ph_iter = ph_items.into_iter();
+                    let mut pb_iter = pb_items.into_iter();
+                    loop {
+                        match (ph_iter.next(), pb_iter.next()) {
+                            (Some(a), Some(b)) => { combined.push(a); combined.push(b); }
+                            (Some(a), None) => { combined.push(a); combined.extend(ph_iter); break; }
+                            (None, Some(b)) => { combined.push(b); combined.extend(pb_iter); break; }
+                            (None, None) => break,
+                        }
+                    }
+                    ph_items = combined;
+                }
+            }
             Json(json!({
-            "items": if lost { json!([]) } else { v["items"].clone() },
+            "items": ph_items,
             "login": v["login"].as_bool() == Some(true) && !lost,
             "page": page,
             "name": v["name"].clone(),
@@ -393,6 +429,12 @@ pub async fn video(Query(p): Query<VideoQuery>) -> Response {
     let Some(key) = p.key.filter(|k| valid_key(k)) else {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
     };
+    if let Some(pb_key) = key.strip_prefix("pb:") {
+        return match browser::resolve_pb_video(pb_key).await {
+            Ok(v) => Json(v).into_response(),
+            Err(e) => browser_failed(e),
+        };
+    }
     let page_url = format!("{SITE}/view_video.php?viewkey={key}");
     let resp = match direct().get(&page_url).send().await {
         Ok(r) => r,
@@ -570,7 +612,13 @@ fn direct() -> &'static reqwest::Client {
 }
 
 fn allowed(u: &Url) -> bool {
-    u.scheme() == "https" && u.host_str().is_some_and(|h| h == "phncdn.com" || h.ends_with(".phncdn.com"))
+    u.scheme() == "https"
+        && u.host_str().is_some_and(|h| {
+            h == "phncdn.com"
+                || h.ends_with(".phncdn.com")
+                || h == "pimpbunny.com"
+                || h.ends_with(".pimpbunny.com")
+        })
 }
 
 fn proxied(u: &Url) -> String {
@@ -610,7 +658,7 @@ fn rewrite_m3u8(text: &str, base: &Url) -> String {
     out
 }
 
-/// Vorschaubilder und HLS-Teile von phncdn.com durchreichen.
+/// Vorschaubilder, HLS-Teile und MP4-Dateien durchreichen.
 pub async fn media(headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response {
     let Some(url) = q.u.as_deref().and_then(|u| Url::parse(u).ok()) else {
         return err(StatusCode::BAD_REQUEST, "Ungültige URL");
@@ -618,10 +666,22 @@ pub async fn media(headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response 
     if !allowed(&url) {
         return err(StatusCode::FORBIDDEN, "Host nicht erlaubt");
     }
+    let host = url.host_str().unwrap_or_default();
+    let is_pb = host.ends_with("pimpbunny.com");
+    let ref_url = if is_pb {
+        "https://pimpbunny.com/"
+    } else {
+        "https://www.pornhub.com/"
+    };
+    let origin = if is_pb {
+        "https://pimpbunny.com"
+    } else {
+        SITE
+    };
     let mut req = direct()
         .get(url.clone())
-        .header(header::REFERER, format!("{SITE}/"))
-        .header(header::ORIGIN, SITE)
+        .header(header::REFERER, ref_url)
+        .header(header::ORIGIN, origin)
         .timeout(Duration::from_secs(if q.dl.is_some() { 3 * 3600 } else { 60 }));
     if let Some(range) = headers.get(header::RANGE) {
         req = req.header(header::RANGE, range.as_bytes());

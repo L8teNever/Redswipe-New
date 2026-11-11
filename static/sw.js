@@ -8,7 +8,7 @@ self.addEventListener('fetch', (e) => {
   const r = e.request;
   if (r.mode !== 'navigate' || r.method !== 'GET') return;
   const p = new URL(r.url).pathname;
-  if (!['/', '/abos', '/favoriten', '/suche', '/shorts', '/offline'].includes(p.replace(/\/+$/, '') || '/')) return;
+  if (!['/', '/pimpbunny', '/abos', '/favoriten', '/suche', '/shorts', '/offline'].includes(p.replace(/\/+$/, '') || '/')) return;
   e.respondWith(fetch(r).then((res) => {
     if (res.ok && res.type === 'basic') { const c = res.clone(); caches.open(SHELL).then((s) => s.put('/', c)).catch(() => {}); }
     return res;

@@ -18,9 +18,11 @@ use tower_http::{
 
 mod actions;
 mod browser;
+mod heat;
 mod login;
 pub mod nipples;
 mod optimize;
+mod pb;
 mod ph;
 mod pool;
 mod redgifs;
@@ -132,6 +134,7 @@ async fn main() {
     let app = Router::new()
         // Startseite ist die Pornhub-Seite, Redswipe läuft dort als Reiter „Shorts“ (eingebettet über /shorts)
         .route_service("/", no_cache(&ph_page))
+        .route_service("/pimpbunny", no_cache(&ph_page))
         .route_service("/shorts", no_cache(&ph_page))
         .route_service("/abos", no_cache(&ph_page))
         .route_service("/favoriten", no_cache(&ph_page))
@@ -160,6 +163,7 @@ async fn main() {
         .route("/api/vote", post(actions::vote).layer(DefaultBodyLimit::max(1024)))
         .route("/api/follow", post(actions::follow).layer(DefaultBodyLimit::max(1024)))
         .route("/api/following", get(actions::following))
+        .route("/api/heat", get(heat::get).post(heat::add).layer(DefaultBodyLimit::max(8 * 1024)))
         .route("/api/ph/list", get(ph::list))
         .route("/api/ph/video", get(ph::video))
         .route("/api/ph/media", get(ph::media))

@@ -251,3 +251,161 @@ async fn run_expression(addr: &str, id: &str, expression: &str, page_url: &str) 
     }
     Ok(r["result"]["result"]["value"].clone())
 }
+
+/// Löst die Video-Quellen einer PimpBunny-Videoseite über den Server-Browser auf.
+/// Fängt die Weiterleitung (302) auf den Speicher-Server (st*.pimpbunny.com) ab.
+pub async fn resolve_pb_video(key: &str) -> Result<Value, BrowserError> {
+    let Some(b) = base() else {
+        return Err(BrowserError::Unavailable("BROWSER_CDP nicht gesetzt".into()));
+    };
+    let addr = resolve(&b).await.map_err(BrowserError::Unavailable)?;
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| BrowserError::Failed(e.to_string()))?;
+
+    let page_url = format!("https://pimpbunny.com/videos/{key}/");
+    let new_url = format!("http://{addr}/json/new?{}", urlencoding::encode(&page_url));
+    let target: Value = http
+        .put(&new_url)
+        .send()
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser nicht erreichbar: {e}")))?
+        .json()
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser antwortet ungültig: {e}")))?;
+    let Some(id) = target["id"].as_str().map(str::to_string) else {
+        return Err(BrowserError::Unavailable("Browser hat keinen Tab geöffnet".into()));
+    };
+
+    let result = timeout(Duration::from_secs(35), run_pb_video(&addr, &id, &page_url)).await;
+    let _ = http.get(format!("http://{addr}/json/close/{id}")).send().await;
+    match result {
+        Ok(r) => r,
+        Err(_) => Err(BrowserError::Failed("Auflösen von PimpBunny hat zu lange gedauert".into())),
+    }
+}
+
+async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, BrowserError> {
+    let (mut ws, _) = connect_async(format!("ws://{addr}/devtools/page/{id}"))
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser-Steuerung nicht erreichbar: {e}")))?;
+
+    let mut n = 1u64;
+    let _ = cdp_call(&mut ws, n, "Network.enable", json!({})).await?;
+    n += 1;
+    let _ = cdp_call(
+        &mut ws,
+        n,
+        "Network.setCookie",
+        json!({
+            "name": "is_age_ok",
+            "value": "1",
+            "domain": ".pimpbunny.com",
+            "path": "/"
+        }),
+    )
+    .await?;
+    n += 1;
+
+    let started = Instant::now();
+    loop {
+        if started.elapsed() > Duration::from_secs(20) {
+            return Err(BrowserError::Failed("PimpBunny hat nicht rechtzeitig geladen".into()));
+        }
+        let r = cdp_call(
+            &mut ws,
+            n,
+            "Runtime.evaluate",
+            json!({"expression": "location.href+'|'+document.readyState", "returnByValue": true}),
+        )
+        .await?;
+        n += 1;
+        let s = r["result"]["result"]["value"].as_str().unwrap_or("");
+        if s.starts_with("https://") && s.contains("pimpbunny.com") && (s.ends_with("|complete") || s.ends_with("|interactive")) {
+            break;
+        }
+        sleep(Duration::from_millis(300)).await;
+    }
+
+    let expr = r#"(()=>{
+        const conf = (window.kvsplayer && window.kvsplayer.kt_player && window.kvsplayer.kt_player.conf) || {};
+        const items = [
+            { q: 360, u: conf.video_url },
+            { q: 480, u: conf.video_alt_url },
+            { q: 720, u: conf.video_alt_url2 },
+            { q: 1080, u: conf.video_alt_url3 },
+            { q: 1440, u: conf.video_alt_url4 }
+        ].filter(x => x.u);
+        items.forEach(it => {
+            const vid = document.createElement('video');
+            vid.preload = 'metadata';
+            vid.src = it.u;
+        });
+        return {
+            title: (conf.video_title || document.title || '').trim(),
+            uploader: (conf.video_models || '').trim(),
+            items: items.map(it => ({ q: it.q, u: it.u }))
+        };
+    })()"#;
+
+    let r = cdp_call(
+        &mut ws,
+        n,
+        "Runtime.evaluate",
+        json!({"expression": expr, "returnByValue": true}),
+    )
+    .await?;
+    n += 1;
+
+    let meta = r["result"]["result"]["value"].clone();
+    let title = meta["title"].as_str().unwrap_or("PimpBunny Video");
+    let uploader = meta["uploader"].as_str().unwrap_or("");
+    let items = meta["items"].as_array().cloned().unwrap_or_default();
+
+    let mut mapping = std::collections::HashMap::new();
+    let listen_start = Instant::now();
+    while listen_start.elapsed() < Duration::from_secs(4) && mapping.len() < items.len() {
+        let msg = timeout(Duration::from_millis(800), ws.next()).await;
+        if let Ok(Some(Ok(Message::Text(t)))) = msg {
+            if let Ok(v) = serde_json::from_str::<Value>(&t) {
+                if v["method"].as_str() == Some("Network.requestWillBeSent") {
+                    let params = &v["params"];
+                    if let Some(target_url) = params["request"]["url"].as_str() {
+                        if target_url.contains(".mp4") {
+                            if let Some(orig) = params["redirectResponse"]["url"].as_str() {
+                                mapping.insert(orig.to_string(), target_url.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sources = Vec::new();
+    for it in &items {
+        let q = it["q"].as_u64().unwrap_or(0);
+        let orig_u = it["u"].as_str().unwrap_or("");
+        if let Some(st_url) = mapping.get(orig_u) {
+            sources.push(json!({ "q": q, "url": st_url }));
+        }
+    }
+    if sources.is_empty() {
+        for target_url in mapping.values() {
+            sources.push(json!({ "q": 720, "url": target_url }));
+        }
+    }
+    sources.sort_by_key(|s| std::cmp::Reverse(s["q"].as_u64().unwrap_or(0)));
+
+    if sources.is_empty() {
+        return Err(BrowserError::Failed("Kein PimpBunny-Stream auflösbar".into()));
+    }
+
+    Ok(json!({
+        "title": title,
+        "uploader": { "name": uploader },
+        "sources": sources
+    }))
+}
