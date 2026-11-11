@@ -167,7 +167,7 @@ pub async fn eval_in_page(page_url: &str, expression: &str) -> Result<Value, Bro
         return Err(BrowserError::Unavailable("Browser hat keinen Tab geöffnet".into()));
     };
 
-    let result = timeout(Duration::from_secs(40), run_expression(&addr, &id, expression, page_url)).await;
+    let result = timeout(Duration::from_secs(70), run_expression(&addr, &id, expression, page_url)).await;
     let _ = http.get(format!("http://{addr}/json/close/{id}")).send().await;
     match result {
         Ok(r) => r,
@@ -279,7 +279,7 @@ pub async fn resolve_pb_video(key: &str) -> Result<Value, BrowserError> {
         return Err(BrowserError::Unavailable("Browser hat keinen Tab geöffnet".into()));
     };
 
-    let result = timeout(Duration::from_secs(35), run_pb_video(&addr, &id, &page_url)).await;
+    let result = timeout(Duration::from_secs(55), run_pb_video(&addr, &id, &page_url)).await;
     let _ = http.get(format!("http://{addr}/json/close/{id}")).send().await;
     match result {
         Ok(r) => r,
@@ -327,6 +327,26 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
             break;
         }
         sleep(Duration::from_millis(300)).await;
+    }
+
+    // Bot-Sperre abwarten: warten, bis der Player auf der Seite da ist
+    let wait_started = Instant::now();
+    loop {
+        let r = cdp_call(
+            &mut ws,
+            n,
+            "Runtime.evaluate",
+            json!({"expression": "!!(window.kvsplayer && window.kvsplayer.kt_player && window.kvsplayer.kt_player.conf && window.kvsplayer.kt_player.conf.video_url)", "returnByValue": true}),
+        )
+        .await?;
+        n += 1;
+        if r["result"]["result"]["value"].as_bool() == Some(true) {
+            break;
+        }
+        if wait_started.elapsed() > Duration::from_secs(22) {
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
     }
 
     let expr = r#"(()=>{

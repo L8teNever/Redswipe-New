@@ -2,7 +2,15 @@
 
 use serde_json::Value;
 
+use std::{
+    collections::HashMap,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
+
 use crate::browser;
+
+static CACHE: Mutex<Option<HashMap<String, (Instant, Vec<Value>)>>> = Mutex::new(None);
 
 /// Holt die Videoliste oder Suchergebnisse von PimpBunny über den Server-Browser.
 pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::BrowserError> {
@@ -24,6 +32,12 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
             }
         }
     };
+
+    if let Some((t, v)) = CACHE.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(&url).cloned())) {
+        if t.elapsed() < Duration::from_secs(300) {
+            return Ok(v);
+        }
+    }
 
     let js = r#"(async()=>{
         if (!document.cookie.includes('is_age_ok')) {
@@ -71,10 +85,34 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
         // Bot-Sperre (Rechenaufgabe) abwarten: so lange prüfen, bis die Kacheln da sind
         let items = extract();
         for (let i = 0; i < 40 && !items.length; i++) { await new Promise(r => setTimeout(r, 500)); items = extract(); }
+        // Vorschaubilder liegen hinter der Bot-Sperre: im Browser holen, verkleinern und einbetten
+        const shrink = async (it) => {
+            if (!it.thumb) return;
+            try {
+                const r = await fetch(it.thumb, { credentials: 'include' });
+                if (!r.ok) return;
+                const bmp = await createImageBitmap(await r.blob());
+                const w = Math.min(420, bmp.width), h = Math.round(bmp.height * w / bmp.width);
+                const c = document.createElement('canvas'); c.width = w; c.height = h;
+                c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+                it.thumb = c.toDataURL('image/jpeg', 0.72);
+            } catch (e) { it.thumb = ''; }
+        };
+        const queue = items.slice();
+        await Promise.all(Array.from({ length: 6 }, async () => { for (let it; (it = queue.shift());) await shrink(it); }));
         return { ok: true, items, title: document.title };
     })()"#;
 
     let v = browser::eval_in_page(&url, js).await?;
     let items = v["items"].as_array().cloned().unwrap_or_default();
+    if !items.is_empty() {
+        if let Ok(mut g) = CACHE.lock() {
+            let m = g.get_or_insert_with(HashMap::new);
+            if m.len() > 40 {
+                m.clear();
+            }
+            m.insert(url, (Instant::now(), items.clone()));
+        }
+    }
     Ok(items)
 }
