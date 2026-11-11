@@ -307,6 +307,25 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
     }
     let page = p.page.unwrap_or(1).clamp(1, 200);
     let src = p.src.as_deref().unwrap_or("ph");
+    // Creator-Seite bei PimpBunny
+    if p.kind.as_deref() == Some("user") && p.path.as_deref().is_some_and(|x| x.starts_with("/pb/")) {
+        let path = p.path.as_deref().unwrap_or("");
+        if !crate::pb::valid_user_path(path) {
+            return err(StatusCode::BAD_REQUEST, "Ungültiger Creator");
+        }
+        return match crate::pb::user(path, page).await {
+            Ok((items, info)) => {
+                let mut out = json!({ "items": items, "page": page, "login": true });
+                for k in ["name", "avatar", "stats"] {
+                    if !info[k].is_null() {
+                        out[k] = info[k].clone();
+                    }
+                }
+                Json(out).into_response()
+            }
+            Err(e) => browser_failed(e),
+        };
+    }
     if src == "pb" && matches!(p.kind.as_deref(), Some("favs" | "subs")) {
         let r = if p.kind.as_deref() == Some("favs") {
             crate::pb::favs(page).map_err(browser::BrowserError::Failed)

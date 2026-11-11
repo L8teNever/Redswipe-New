@@ -361,6 +361,12 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
         return {
             title: (conf.video_title || document.title || '').trim(),
             uploader: (conf.video_models || '').trim(),
+            model: (() => {
+                const a = document.querySelector('[class*="pages-view-video-model-title"] a[href], [class*="pages-view-video-models"] a[href*="/onlyfans-creators/"], [class*="pages-view-video-models"] a[href*="/models/"]');
+                if (!a) return null;
+                const m = new URL(a.href, location.href).pathname.match(/^\/(onlyfans-creators|models|male-models)\/[^/]+/);
+                return m ? { name: a.innerText.trim(), path: '/pb' + m[0] } : null;
+            })(),
             items: items.map(it => ({ q: it.q, u: it.u }))
         };
     })()"#;
@@ -375,7 +381,10 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
 
     let meta = r["result"]["result"]["value"].clone();
     let title = meta["title"].as_str().unwrap_or("PimpBunny Video");
-    let uploader = meta["uploader"].as_str().unwrap_or("");
+    // Erster Creator mit Link (Name und Creator-Seite), sonst der Name aus dem Player
+    let model_name = meta["model"]["name"].as_str().unwrap_or("").trim();
+    let upath = meta["model"]["path"].as_str().filter(|p| crate::pb::valid_user_path(p)).unwrap_or("");
+    let uploader = if model_name.is_empty() { meta["uploader"].as_str().unwrap_or("") } else { model_name };
     let items = meta["items"].as_array().cloned().unwrap_or_default();
 
     // Die Links selbst sind für den Server gesperrt; `/api/ph/media` löst sie beim Abspielen
@@ -397,7 +406,7 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
 
     Ok(json!({
         "title": title,
-        "uploader": { "name": uploader },
+        "uploader": if upath.is_empty() { json!({ "name": uploader }) } else { json!({ "name": uploader, "path": upath }) },
         "sources": sources
     }))
 }

@@ -262,6 +262,7 @@
   #player .acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #0b0a0a; }
   .upl { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; height: 44px; padding: 0 14px 0 4px; border-radius: 22px; border: 0; background: var(--surf); cursor: pointer; }
   .upl .ava { width: 36px; height: 36px; font-size: 15px; }
+  .upl[hidden], .usearch[hidden] { display: none; }
   .upl b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .upl:hover, .pill:hover { background: var(--surf-2); }
   .acts .sp { flex: 1; }
@@ -371,7 +372,9 @@
   const $ = (s) => document.querySelector(s);
   const grid = $('#grid'), foot = $('#foot'), form = $('form.search'), qIn = $('#q');
   const px = (u) => /^(data|blob):/.test(u || '') ? u : '/api/ph/media?u=' + encodeURIComponent(u);
-  const isPb = (k) => String(k || '').startsWith('pb:'); // PimpBunny: kein Konto, also keine Likes/Favoriten/Abos
+  const isPb = (k) => String(k || '').startsWith('pb:');
+  const pbUser = () => upath.startsWith('/pb/'); // Creator-Seite bei PimpBunny (ohne Sortierung, Kategorien und Suche)
+  const siteName = () => pbUser() ? 'PimpBunny' : 'Pornhub'; // PimpBunny: kein Konto, also keine Likes/Favoriten/Abos
   const itemByKey = new Map(); // zuletzt gezeigte Kacheln (Bild, Dauer) für Player und Offline
   const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
   const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
@@ -470,7 +473,7 @@
       if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
       page++;
       if (kind === 'user') $('#uInfo').textContent = (uq || userCats.length) ? (d.searched ? (d.items || []).length + ' Treffer' + (uq ? ' für „' + uq + '“' : '') + (userCats.length ? ' in ' + userCats.map((c) => c.name).join(' + ') : '') + ' unter ' + d.searched + ' Videos' + (d.partial ? ' (nicht alle durchsucht)' : '') : 'Suche …') : 'Alle Videos';
-      if (kind === 'user' && d.name) { $('#uName').textContent = d.name; document.title = d.name + ' · Pornhub'; }
+      if (kind === 'user' && d.name) { $('#uName').textContent = d.name; document.title = d.name + ' · ' + siteName(); }
       if (kind === 'user' && d.avatar) setAva(d.avatar);
       if (kind === 'user' && d.stats && d.stats.length) setStats(d.stats);
       const items = (d.items || []).filter((it) => !seen.has(it.key));
@@ -828,6 +831,7 @@
     const base = [['views', 'Meiste Aufrufe'], ['top', 'Beste Bewertung'], ['long', 'Am längsten']];
     if (kind === 'home') return [['', 'Empfohlen'], ['new', 'Neueste'], ...base];
     if (kind === 'search') return [['', 'Relevanz'], ['new', 'Neueste'], ...base];
+    if (kind === 'user' && pbUser()) return [];
     if (kind === 'user') return [['', 'Neueste'], ...(upath.startsWith('/channels/') ? base.slice(0, 2) : base)];
     return [];
   }
@@ -836,7 +840,7 @@
   let homeCats = []; try { homeCats = JSON.parse(store.get('ph-cats', '[]')) || []; } catch {}
   let userCats = [];
   // Kategorien der aktuellen Liste: Startseite (gemerkt) oder Creator-Seite (nur für diesen Creator)
-  const catsOn = () => kind === 'home' || kind === 'user';
+  const catsOn = () => kind === 'home' || (kind === 'user' && !pbUser());
   const getCats = () => kind === 'user' ? userCats : kind === 'home' ? homeCats : [];
   const setCats = (a) => { if (kind === 'user') userCats = a; else homeCats = a; };
   const chip = (cls, label, fn) => { const b = el('button', 'chip ' + cls, label); b.type = 'button'; b.onclick = fn; return b; };
@@ -986,7 +990,7 @@
     if (kind === 'user' && upath === path) return;
     upath = path; uq = ''; userCats = []; uSubKey = ''; uSub.hidden = true; uQ.value = ''; $('#uInfo').textContent = 'Alle Videos';
     const n = name || path.split('/').pop();
-    $('#uName').textContent = n; $('#uAva').textContent = n.charAt(0); $('#uAva').style.backgroundImage = ''; $('#uAva').dataset.u = path; $('#uStats').replaceChildren();
+    $('#uName').textContent = n; $('#uAva').textContent = n.charAt(0); $('#uAva').style.backgroundImage = ''; $('#uAva').dataset.u = path; $('#uStats').replaceChildren(); $('#uForm').hidden = path.startsWith('/pb/');
     setKind('user');
   }
   const homeKind = () => TABS.includes(store.get('ph-kind', 'home')) ? store.get('ph-kind', 'home') : 'home';
@@ -1389,7 +1393,7 @@
   addEventListener('pagehide', () => { hFlush(); hSave(); hPush(true); });
   ['play', 'pause', 'volumechange'].forEach((e) => pv.addEventListener(e, () => { sync(); wake(); }));
   ['timeupdate', 'progress', 'durationchange', 'loadedmetadata'].forEach((e) => pv.addEventListener(e, progress));
-  document.addEventListener('fullscreenchange', sync);
+  document.addEventListener('fullscreenchange', () => { sync(); if (!document.fullscreenElement) try { screen.orientation.unlock(); } catch {} });
   const toggle = () => { if (pv.paused) pv.play().catch(() => {}); else pv.pause(); };
   function flash(fx, txt) { if (txt != null) fx.lastChild.textContent = txt; fx.classList.add('show'); clearTimeout(fx._t); fx._t = setTimeout(() => fx.classList.remove('show'), 450); }
   let seekAcc = 0, seekAccT = 0;
@@ -1401,7 +1405,8 @@
   }
   function fullscreen() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else if (player.requestFullscreen) player.requestFullscreen().then(() => { try { screen.orientation.lock('landscape').catch(() => {}); } catch {} }).catch(() => {});
+    // Hochkant-Videos bleiben hochkant, Querformat dreht ins Querformat
+    else if (player.requestFullscreen) player.requestFullscreen().then(() => { try { screen.orientation.lock(pv.videoHeight > pv.videoWidth ? 'portrait' : 'landscape').catch(() => {}); } catch {} }).catch(() => {});
     else if (pv.webkitEnterFullscreen) pv.webkitEnterFullscreen();
   }
   cPlay.onclick = toggle; $('#cBack').onclick = () => skip(-10); $('#cFwd').onclick = () => skip(10); cFs.onclick = fullscreen;
@@ -1482,7 +1487,7 @@
     if (!peek.hidden) closePeek();
     veil.hidden = false; veil.focus();
   });
-  function closeVideo() { hClose(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); pv.playbackRate = 1; pTok++; curKey = ''; stop(); pv.removeAttribute('poster'); player.hidden = true; document.body.style.overflow = ''; document.title = kind === 'user' ? ($('#uName').textContent + ' · Pornhub') : 'Redswipe · Pornhub'; }
+  function closeVideo() { hClose(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); pv.playbackRate = 1; pTok++; curKey = ''; stop(); pv.removeAttribute('poster'); player.hidden = true; document.body.style.overflow = ''; document.title = kind === 'user' ? ($('#uName').textContent + ' · ' + siteName()) : 'Redswipe · Pornhub'; }
   function route() {
     const h = location.hash, m = h.match(/[#&]v=([A-Za-z0-9_:.-]+)/), u = h.match(/[#&]u=(\/[A-Za-z0-9_.\/-]+)/);
     if (m) { openVideo(m[1]); return; }
