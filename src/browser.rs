@@ -429,3 +429,50 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
         "sources": sources
     }))
 }
+
+/// Folgt einer Weiterleitung im Server-Browser und gibt die Zieladresse zurück
+/// (PimpBunny: `get_file`-Links führen auf den Speicher-Server, den der Server direkt laden darf).
+pub async fn resolve_redirect(url: &str) -> Result<String, BrowserError> {
+    let Some(b) = base() else {
+        return Err(BrowserError::Unavailable("BROWSER_CDP nicht gesetzt".into()));
+    };
+    let addr = resolve(&b).await.map_err(BrowserError::Unavailable)?;
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| BrowserError::Failed(e.to_string()))?;
+    let target: Value = http
+        .put(format!("http://{addr}/json/new?{}", urlencoding::encode(url)))
+        .send()
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser nicht erreichbar: {e}")))?
+        .json()
+        .await
+        .map_err(|e| BrowserError::Unavailable(format!("Browser antwortet ungültig: {e}")))?;
+    let Some(id) = target["id"].as_str().map(str::to_string) else {
+        return Err(BrowserError::Unavailable("Browser hat keinen Tab geöffnet".into()));
+    };
+    let started = Instant::now();
+    let mut found = None;
+    while started.elapsed() < Duration::from_secs(20) {
+        sleep(Duration::from_millis(400)).await;
+        let Ok(resp) = http.get(format!("http://{addr}/json/list")).send().await else { continue };
+        let Ok(list) = resp.json::<Value>().await else { continue };
+        let cur = list
+            .as_array()
+            .and_then(|a| a.iter().find(|t| t["id"].as_str() == Some(id.as_str())))
+            .and_then(|t| t["url"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let moved = reqwest::Url::parse(&cur)
+            .ok()
+            .is_some_and(|u| u.scheme() == "https" && u.host_str().is_some_and(|h| h != "pimpbunny.com" && h.ends_with(".pimpbunny.com")));
+        if moved {
+            found = Some(cur);
+            break;
+        }
+    }
+    let _ = http.get(format!("http://{addr}/json/close/{id}")).send().await;
+    found.ok_or_else(|| BrowserError::Failed("Weiterleitung nicht auflösbar".into()))
+}

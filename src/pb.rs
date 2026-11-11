@@ -116,3 +116,22 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
     }
     Ok(items)
 }
+
+/// Löst einen `get_file`-Link (Vorschau-Clip) auf den Speicher-Server auf, 20 Minuten zwischengespeichert.
+pub async fn resolve_file(url: &str) -> Result<String, browser::BrowserError> {
+    static FILES: Mutex<Option<HashMap<String, (Instant, String)>>> = Mutex::new(None);
+    if let Some((t, v)) = FILES.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(url).cloned())) {
+        if t.elapsed() < Duration::from_secs(1200) {
+            return Ok(v);
+        }
+    }
+    let v = browser::resolve_redirect(url).await?;
+    if let Ok(mut g) = FILES.lock() {
+        let m = g.get_or_insert_with(HashMap::new);
+        if m.len() > 500 {
+            m.clear();
+        }
+        m.insert(url.to_string(), (Instant::now(), v.clone()));
+    }
+    Ok(v)
+}

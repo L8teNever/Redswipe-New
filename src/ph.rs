@@ -562,6 +562,10 @@ pub async fn state(Query(p): Query<VideoQuery>) -> Response {
     let Some(key) = p.key.filter(|k| valid_key(k)) else {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
     };
+    if key.starts_with("pb:") {
+        // PimpBunny hat kein Konto: keine Likes, Favoriten oder Abos
+        return Json(json!({})).into_response();
+    }
     run_state(&key, "").await
 }
 
@@ -569,6 +573,9 @@ pub async fn state(Query(p): Query<VideoQuery>) -> Response {
 pub async fn act(Json(b): Json<ActBody>) -> Response {
     if !valid_key(&b.key) || !matches!(b.action.as_str(), "up" | "down" | "fav" | "sub") {
         return err(StatusCode::BAD_REQUEST, "Ungültige Aktion");
+    }
+    if b.key.starts_with("pb:") {
+        return err(StatusCode::BAD_REQUEST, "Das geht bei PimpBunny-Videos nicht.");
     }
     run_state(&b.key, &b.action).await
 }
@@ -666,6 +673,15 @@ pub async fn media(headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response 
     if !allowed(&url) {
         return err(StatusCode::FORBIDDEN, "Host nicht erlaubt");
     }
+    // PimpBunny: `get_file`-Links (Vorschau-Clips) sind für den Server gesperrt, der Browser löst sie auf
+    let url = if url.host_str() == Some("pimpbunny.com") && url.path().starts_with("/get_file/") {
+        match crate::pb::resolve_file(url.as_str()).await.ok().and_then(|u| Url::parse(&u).ok()).filter(allowed) {
+            Some(u) => u,
+            None => return err(StatusCode::BAD_GATEWAY, "Vorschau nicht ladbar"),
+        }
+    } else {
+        url
+    };
     let host = url.host_str().unwrap_or_default();
     let is_pb = host.ends_with("pimpbunny.com");
     let ref_url = if is_pb {

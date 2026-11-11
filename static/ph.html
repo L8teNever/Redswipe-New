@@ -141,6 +141,7 @@
   /* Modern Clean Custom Dropdown Menu */
   .cmenu { position: relative; display: inline-flex; }
   .cmenu[hidden] { display: none; }
+  #player.pb .acts .pill[data-a], .hva[hidden], .pka[hidden] { display: none; }
   .cmenu-btn { height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid var(--line); background: var(--surf); color: var(--tx); display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; cursor: pointer; transition: background .18s, border-color .18s, transform .12s; user-select: none; }
   .cmenu-btn:hover { background: var(--surf-2); border-color: rgba(255,255,255,.2); }
   .cmenu-btn:active { transform: scale(.98); }
@@ -369,7 +370,9 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const grid = $('#grid'), foot = $('#foot'), form = $('form.search'), qIn = $('#q');
-  const px = (u) => '/api/ph/media?u=' + encodeURIComponent(u);
+  const px = (u) => /^(data|blob):/.test(u || '') ? u : '/api/ph/media?u=' + encodeURIComponent(u);
+  const isPb = (k) => String(k || '').startsWith('pb:'); // PimpBunny: kein Konto, also keine Likes/Favoriten/Abos
+  const itemByKey = new Map(); // zuletzt gezeigte Kacheln (Bild, Dauer) für Player und Offline
   const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
   const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
@@ -773,6 +776,7 @@
   }
   function card(it) {
     const c = el('div', 'card'); c.dataset.k = it.key; const th = el('div', 'thumb'), img = el('img');
+    if (it.key) { itemByKey.set(it.key, it); if (itemByKey.size > 600) itemByKey.delete(itemByKey.keys().next().value); }
     img.loading = 'lazy'; img.alt = ''; img.src = px(it.thumb);
     th.appendChild(img);
     if (it.duration) th.appendChild(el('span', 'dur', it.duration));
@@ -1118,7 +1122,7 @@
     let left = r.left + r.width / 2 - w / 2; left = Math.max(8, Math.min(innerWidth - w - 8, left));
     const top = Math.max(8, r.top - r.height * 0.15);
     Object.assign(hov.style, { left: left + 'px', top: top + 'px', width: w + 'px' });
-    hvImg.src = px(it.thumb); hvVid.removeAttribute('src');
+    hvImg.src = px(it.thumb); hvVid.removeAttribute('src'); $('#hvA').hidden = isPb(it.key);
     if (it.preview) { hvVid.src = px(it.preview); hvVid.play().catch(() => {}); }
     $('#hvDur').textContent = it.duration || ''; $('#hvDur').hidden = !it.duration;
     $('#hvT').textContent = it.title || '';
@@ -1183,10 +1187,10 @@
     $('#kTitle').textContent = it.title || '';
     $('#kSub').textContent = [it.uploader, it.duration, it.views && it.views + ' Aufrufe'].filter(Boolean).join(' · ');
     kApply({ up: 0, fav: 0, sub: 0 }); kPills.up.lastChild.textContent = ''; $('#kToast').hidden = true;
-    kv.controls = false; kv.muted = true; kv.loop = true; kv.poster = px(it.thumb); $('#kctl').hidden = true;
+    kv.controls = false; kv.muted = true; kv.loop = true; kv.poster = px(it.thumb); $('#kctl').hidden = true; $('#kActs').hidden = isPb(key);
     if (it.preview) { kv.src = px(it.preview); kv.play().catch(() => {}); } else kv.removeAttribute('src');
     peek.hidden = false; document.body.style.overflow = 'hidden';
-    fetch('/api/ph/state?key=' + encodeURIComponent(key)).then((r) => r.ok ? r.json() : null).then((d) => { if (d && key === peekKey) kApply(d); }).catch(() => {});
+    if (!isPb(key)) fetch('/api/ph/state?key=' + encodeURIComponent(key)).then((r) => r.ok ? r.json() : null).then((d) => { if (d && key === peekKey) kApply(d); }).catch(() => {});
     try {
       const r = await fetch('/api/ph/video?key=' + encodeURIComponent(key));
       const d = await r.json().catch(() => ({}));
@@ -1232,6 +1236,7 @@
   async function openVideo(key) {
     const my = ++pTok; if (hKey) hClose(); curKey = key; markWatched(key); hovHide(); hOpen(key);
     pUp.hidden = true; applyState({ up: 0, down: 0, fav: 0, sub: 0 }); $('#pLikes').textContent = ''; $('#pDislikes').textContent = ''; $('#pToast').hidden = true;
+    player.classList.toggle('pb', isPb(key));
     player.hidden = false; document.body.style.overflow = 'hidden';
     $('#pTitle').textContent = 'Lädt …'; $('#pSub').textContent = ''; pQPop.replaceChildren(); pQLbl.textContent = 'Auto'; pMsg.textContent = 'Video wird geladen …';
     curInfo = null; curSources = []; offUi();
@@ -1262,13 +1267,15 @@
       if (!d.sources || !d.sources.length) throw new Error('Kein Stream gefunden');
       const srcSite = key.startsWith('pb:') ? 'PimpBunny' : 'Pornhub';
       $('#pTitle').textContent = d.title || ''; document.title = (d.title || 'Video') + ' · ' + srcSite;
-      const mins = d.duration ? Math.floor(d.duration / 60) + ':' + String(d.duration % 60).padStart(2, '0') : '';
+      const known = itemByKey.get(key) || {};
+      if (!d.thumb && known.thumb) d.thumb = known.thumb;
+      const mins = d.duration ? Math.floor(d.duration / 60) + ':' + String(d.duration % 60).padStart(2, '0') : (known.duration || '');
       if (d.uploader && d.uploader.path) {
         pUp.dataset.path = d.uploader.path; pUp.dataset.name = d.uploader.name || '';
         $('#pUpName').textContent = d.uploader.name; $('#pUpAva').textContent = (d.uploader.name || '?').charAt(0); pUp.hidden = false;
       }
       applyState({ likes: d.likes, dislikes: d.dislikes });
-      loadState(key);
+      if (!isPb(key)) loadState(key);
       $('#pSub').textContent = [d.uploader && d.uploader.name, mins].filter(Boolean).join(' · ');
       if (d.thumb) pv.poster = px(d.thumb);
       curSources = d.sources; curInfo = { title: d.title || '', uploader: d.uploader && d.uploader.name || '', upath: d.uploader && d.uploader.path || '', duration: mins, thumb: d.thumb || '' }; offUi();
