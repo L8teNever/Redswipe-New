@@ -170,7 +170,7 @@ async fn main() {
         .route("/api/ph/state", get(ph::state))
         .route("/api/ph/people", get(ph::people))
         .route("/api/ph/cats", get(ph::cats))
-        .route("/api/ph/act", post(ph::act).layer(DefaultBodyLimit::max(1024)))
+        .route("/api/ph/act", post(ph::act).layer(DefaultBodyLimit::max(256 * 1024)))
         .route(
             "/api/login",
             get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),

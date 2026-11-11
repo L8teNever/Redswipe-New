@@ -10,6 +10,7 @@ use std::{
 
 use crate::browser;
 
+static VIDEOS: Mutex<Option<HashMap<String, (Instant, Value)>>> = Mutex::new(None);
 static CACHE: Mutex<Option<HashMap<String, (Instant, Vec<Value>)>>> = Mutex::new(None);
 
 /// Holt die Videoliste oder Suchergebnisse von PimpBunny über den Server-Browser.
@@ -166,7 +167,6 @@ static PAGES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
 /// Videoseite auflösen (Titel, Creator, Qualitäten), 10 Minuten zwischengespeichert, ein zweiter Versuch bei Fehler.
 pub async fn video(key: &str) -> Result<Value, browser::BrowserError> {
-    static VIDEOS: Mutex<Option<HashMap<String, (Instant, Value)>>> = Mutex::new(None);
     let hit = |k: &str| VIDEOS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(k).cloned())).filter(|(t, _)| t.elapsed() < Duration::from_secs(600)).map(|(_, v)| v);
     if let Some(v) = hit(key) {
         return Ok(v);
@@ -192,4 +192,155 @@ pub async fn video(key: &str) -> Result<Value, browser::BrowserError> {
     })
     .await
     .map_err(|e| browser::BrowserError::Failed(e.to_string()))?
+}
+
+// ---------- Eigene Likes, Favoriten und Abos (lokal, PimpBunny kennt hier kein Konto) ----------
+
+use std::{env, path::PathBuf, sync::OnceLock};
+
+use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::json;
+
+fn db() -> Result<&'static Mutex<Connection>, String> {
+    static DB: OnceLock<Result<Mutex<Connection>, String>> = OnceLock::new();
+    DB.get_or_init(|| {
+        let path = PathBuf::from(env::var("VPN_DIR").unwrap_or_else(|_| "/vpn".into())).join("pb.sqlite");
+        let c = Connection::open(path).map_err(|e| e.to_string())?;
+        c.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE IF NOT EXISTS likes (key TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS favs (key TEXT PRIMARY KEY, item TEXT NOT NULL, ts INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS subs (name TEXT PRIMARY KEY, label TEXT NOT NULL, ts INTEGER NOT NULL);",
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Mutex::new(c))
+    })
+    .as_ref()
+    .map_err(|e| e.clone())
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+fn norm(name: &str) -> String {
+    name.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// Kachel eines Videos aus dem Listen-Zwischenspeicher.
+fn cached_item(key: &str) -> Option<Value> {
+    let g = CACHE.lock().ok()?;
+    g.as_ref()?.values().flat_map(|(_, v)| v.iter()).find(|it| it["key"].as_str() == Some(key)).cloned()
+}
+
+/// Creator eines Videos: aus der Kachel, der Videoseite oder den Favoriten.
+fn uploader_of(key: &str, meta: Option<&Value>) -> String {
+    let from_item = |v: &Value| v["uploader"].as_str().unwrap_or("").trim().to_string();
+    let mut name = cached_item(key).map(|v| from_item(&v)).unwrap_or_default();
+    if name.is_empty() {
+        if let Some(v) = VIDEOS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(key.trim_start_matches("pb:")).cloned())) {
+            name = v.1["uploader"]["name"].as_str().unwrap_or("").trim().to_string();
+        }
+    }
+    if name.is_empty() {
+        name = meta.map(from_item).unwrap_or_default();
+    }
+    name
+}
+
+/// Zustand eines Videos: Like, Favorit und ob dem Creator gefolgt wird.
+pub fn state(key: &str, meta: Option<&Value>) -> Result<Value, String> {
+    let c = db()?.lock().map_err(|e| e.to_string())?;
+    let up: bool = c.query_row("SELECT 1 FROM likes WHERE key = ?1", [key], |_| Ok(true)).optional().map_err(|e| e.to_string())?.is_some();
+    let fav: bool = c.query_row("SELECT 1 FROM favs WHERE key = ?1", [key], |_| Ok(true)).optional().map_err(|e| e.to_string())?.is_some();
+    let who = uploader_of(key, meta);
+    let sub: bool = !who.is_empty() && c.query_row("SELECT 1 FROM subs WHERE name = ?1", [norm(&who)], |_| Ok(true)).optional().map_err(|e| e.to_string())?.is_some();
+    Ok(json!({ "ok": true, "up": up as u8, "down": 0, "fav": fav as u8, "sub": sub as u8, "sub_name": who }))
+}
+
+/// Like, Favorit oder Abo umschalten.
+pub fn toggle(key: &str, action: &str, meta: Option<&Value>) -> Result<Value, String> {
+    {
+        let c = db()?.lock().map_err(|e| e.to_string())?;
+        match action {
+            "up" => {
+                let n = c.execute("DELETE FROM likes WHERE key = ?1", [key]).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    c.execute("INSERT INTO likes (key, ts) VALUES (?1, ?2)", params![key, now()]).map_err(|e| e.to_string())?;
+                }
+            }
+            "fav" => {
+                let n = c.execute("DELETE FROM favs WHERE key = ?1", [key]).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    let mut item = cached_item(key).or_else(|| meta.cloned()).unwrap_or_else(|| json!({ "title": key }));
+                    if let Some(o) = item.as_object_mut() {
+                        o.insert("key".into(), json!(key));
+                        o.insert("src".into(), json!("pb"));
+                    }
+                    let who = uploader_of(key, meta);
+                    if !who.is_empty() {
+                        item["uploader"] = json!(who);
+                    }
+                    c.execute("INSERT INTO favs (key, item, ts) VALUES (?1, ?2, ?3)", params![key, item.to_string(), now()]).map_err(|e| e.to_string())?;
+                }
+            }
+            "sub" => {
+                let who = uploader_of(key, meta);
+                if who.is_empty() {
+                    return Err("Creator dieses Videos ist nicht bekannt".into());
+                }
+                let n = c.execute("DELETE FROM subs WHERE name = ?1", [norm(&who)]).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    c.execute("INSERT INTO subs (name, label, ts) VALUES (?1, ?2, ?3)", params![norm(&who), who, now()]).map_err(|e| e.to_string())?;
+                }
+            }
+            _ => return Err("Unbekannte Aktion".into()),
+        }
+    }
+    state(key, meta)
+}
+
+/// Eigene Favoriten, neueste zuerst, 32 je Seite.
+pub fn favs(page: u32) -> Result<Vec<Value>, String> {
+    let c = db()?.lock().map_err(|e| e.to_string())?;
+    let mut st = c.prepare("SELECT item FROM favs ORDER BY ts DESC LIMIT 32 OFFSET ?1").map_err(|e| e.to_string())?;
+    let rows = st.query_map([(page.max(1) as i64 - 1) * 32], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    Ok(rows.filter_map(|r| r.ok()).filter_map(|s| serde_json::from_str::<Value>(&s).ok()).collect())
+}
+
+/// Videos der Creator, denen gefolgt wird: Suche nach dem Namen, nur Treffer dieses Creators.
+pub async fn subs_feed(page: u32) -> Result<Vec<Value>, browser::BrowserError> {
+    let names: Vec<String> = {
+        let Ok(db) = db() else { return Ok(vec![]) };
+        let Ok(c) = db.lock() else { return Ok(vec![]) };
+        let Ok(mut st) = c.prepare("SELECT label FROM subs ORDER BY ts DESC LIMIT 8") else { return Ok(vec![]) };
+        let Ok(rows) = st.query_map([], |r| r.get::<_, String>(0)) else { return Ok(vec![]) };
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    let mut tasks = Vec::new();
+    for n in names {
+        tasks.push(tokio::spawn(async move {
+            let items = list(page, Some(&n)).await.unwrap_or_default();
+            let want = norm(&n);
+            items.into_iter().filter(|it| norm(it["uploader"].as_str().unwrap_or("")) == want).collect::<Vec<_>>()
+        }));
+    }
+    let mut lists = Vec::new();
+    for t in tasks {
+        lists.push(t.await.unwrap_or_default());
+    }
+    // Abwechselnd mischen, ohne doppelte Videos
+    let mut out: Vec<Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let longest = lists.iter().map(Vec::len).max().unwrap_or(0);
+    for i in 0..longest {
+        for l in &lists {
+            if let Some(it) = l.get(i) {
+                if seen.insert(it["key"].as_str().unwrap_or("").to_string()) {
+                    out.push(it.clone());
+                }
+            }
+        }
+    }
+    Ok(out)
 }

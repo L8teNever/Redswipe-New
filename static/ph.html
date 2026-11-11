@@ -141,7 +141,7 @@
   /* Modern Clean Custom Dropdown Menu */
   .cmenu { position: relative; display: inline-flex; }
   .cmenu[hidden] { display: none; }
-  #player.pb .acts .pill[data-a], .hva[hidden], .pka[hidden] { display: none; }
+  #player.pb .acts .pill[data-a="down"], .hva[hidden], .pka[hidden] { display: none; }
   .cmenu-btn { height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid var(--line); background: var(--surf); color: var(--tx); display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; cursor: pointer; transition: background .18s, border-color .18s, transform .12s; user-select: none; }
   .cmenu-btn:hover { background: var(--surf-2); border-color: rgba(255,255,255,.2); }
   .cmenu-btn:active { transform: scale(.98); }
@@ -457,7 +457,7 @@
     busy = true; const my = token;
     foot.replaceChildren(el('div', 'loader'));
     try {
-      const effSrc = kind === 'pb' ? 'pb' : (kind === 'home' || kind === 'search') ? srcFilter : '';
+      const effSrc = kind === 'pb' ? 'pb' : (kind === 'home' || kind === 'search' || kind === 'subs' || kind === 'favs') ? srcFilter : '';
       const p = new URLSearchParams({ kind: kind === 'pb' ? 'home' : kind, page: String(page + 1) });
       if (effSrc) p.set('src', effSrc);
       if (kind === 'search') p.set('q', q.trim());
@@ -922,7 +922,7 @@
   addEventListener('resize', () => { if (kind === 'shorts') shortsPos(); });
 
   function setKind(k, push = true) {
-    { const sm = $('#srcMenu'); if (sm) sm.hidden = !(k === 'home' || k === 'search'); }
+    { const sm = $('#srcMenu'); if (sm) sm.hidden = !(k === 'home' || k === 'search' || k === 'subs' || k === 'favs'); }
     if (push && k !== 'user') syncUrl(k);
     if (kind === 'shorts' && k !== 'shorts') shortsPause();
     document.body.classList.toggle('sh', k === 'shorts');
@@ -1019,7 +1019,7 @@
     } catch {}
   }
   async function act(key, action) {
-    const r = await fetch('/api/ph/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, action }) });
+    const r = await fetch('/api/ph/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, action, meta: isPb(key) ? itemByKey.get(key) || null : null }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(r.status === 401 ? 'Nicht bei Pornhub eingeloggt. Melde dich einmal auf redswipe-login.kulbarts.com an.' : (d.error || 'HTTP ' + r.status));
     return d;
@@ -1122,7 +1122,7 @@
     let left = r.left + r.width / 2 - w / 2; left = Math.max(8, Math.min(innerWidth - w - 8, left));
     const top = Math.max(8, r.top - r.height * 0.15);
     Object.assign(hov.style, { left: left + 'px', top: top + 'px', width: w + 'px' });
-    hvImg.src = px(it.thumb); hvVid.removeAttribute('src'); $('#hvA').hidden = isPb(it.key);
+    hvImg.src = px(it.thumb); hvVid.removeAttribute('src'); $('#hvA').hidden = false;
     if (it.preview) { hvVid.src = px(it.preview); hvVid.play().catch(() => {}); }
     $('#hvDur').textContent = it.duration || ''; $('#hvDur').hidden = !it.duration;
     $('#hvT').textContent = it.title || '';
@@ -1187,10 +1187,10 @@
     $('#kTitle').textContent = it.title || '';
     $('#kSub').textContent = [it.uploader, it.duration, it.views && it.views + ' Aufrufe'].filter(Boolean).join(' · ');
     kApply({ up: 0, fav: 0, sub: 0 }); kPills.up.lastChild.textContent = ''; $('#kToast').hidden = true;
-    kv.controls = false; kv.muted = true; kv.loop = true; kv.poster = px(it.thumb); $('#kctl').hidden = true; $('#kActs').hidden = isPb(key);
+    kv.controls = false; kv.muted = true; kv.loop = true; kv.poster = px(it.thumb); $('#kctl').hidden = true; $('#kActs').hidden = false;
     if (it.preview) { kv.src = px(it.preview); kv.play().catch(() => {}); } else kv.removeAttribute('src');
     peek.hidden = false; document.body.style.overflow = 'hidden';
-    if (!isPb(key)) fetch('/api/ph/state?key=' + encodeURIComponent(key)).then((r) => r.ok ? r.json() : null).then((d) => { if (d && key === peekKey) kApply(d); }).catch(() => {});
+    fetch('/api/ph/state?key=' + encodeURIComponent(key)).then((r) => r.ok ? r.json() : null).then((d) => { if (d && key === peekKey) kApply(d); }).catch(() => {});
     try {
       const r = await fetch('/api/ph/video?key=' + encodeURIComponent(key));
       const d = await r.json().catch(() => ({}));
@@ -1275,7 +1275,7 @@
         $('#pUpName').textContent = d.uploader.name; $('#pUpAva').textContent = (d.uploader.name || '?').charAt(0); pUp.hidden = false;
       }
       applyState({ likes: d.likes, dislikes: d.dislikes });
-      if (!isPb(key)) loadState(key);
+      loadState(key);
       $('#pSub').textContent = [d.uploader && d.uploader.name, mins].filter(Boolean).join(' · ');
       if (d.thumb) pv.poster = px(d.thumb);
       curSources = d.sources; curInfo = { title: d.title || '', uploader: d.uploader && d.uploader.name || '', upath: d.uploader && d.uploader.path || '', duration: mins, thumb: d.thumb || '' }; offUi();

@@ -38,6 +38,8 @@ pub struct ListQuery {
 pub struct ActBody {
     key: String,
     action: String,
+    /// Kachel des Videos (nur PimpBunny, falls der Server sie nicht mehr im Zwischenspeicher hat)
+    meta: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -305,6 +307,17 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
     }
     let page = p.page.unwrap_or(1).clamp(1, 200);
     let src = p.src.as_deref().unwrap_or("ph");
+    if src == "pb" && matches!(p.kind.as_deref(), Some("favs" | "subs")) {
+        let r = if p.kind.as_deref() == Some("favs") {
+            crate::pb::favs(page).map_err(browser::BrowserError::Failed)
+        } else {
+            crate::pb::subs_feed(page).await
+        };
+        return match r {
+            Ok(items) => Json(json!({ "items": items, "page": page, "login": true })).into_response(),
+            Err(e) => browser_failed(e),
+        };
+    }
     if src == "pb" {
         return match crate::pb::list(page, p.q.as_deref()).await {
             Ok(items) => Json(json!({ "items": items, "page": page, "login": true })).into_response(),
@@ -358,6 +371,10 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
         }
         "favs" => match my_favs().await {
             Ok(Some(path)) => format!("{SITE}{path}?page={page}"),
+            Ok(None) if is_both => {
+                let items = crate::pb::favs(page).unwrap_or_default();
+                return Json(json!({ "items": items, "login": !items.is_empty(), "page": page })).into_response();
+            }
             Ok(None) => return Json(json!({ "items": [], "login": false, "page": page })).into_response(),
             Err(e) => return browser_failed(e),
         },
@@ -392,8 +409,16 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
                     obj.insert("src".to_string(), json!("ph"));
                 }
             }
-            if is_both && (p.kind.as_deref().unwrap_or("home") == "home" || p.kind.as_deref() == Some("search")) {
-                if let Ok(pb_items) = crate::pb::list(page, p.q.as_deref()).await {
+            let kind_s = p.kind.as_deref().unwrap_or("home");
+            let mut pb_found = false;
+            if is_both && matches!(kind_s, "home" | "search" | "favs" | "subs") {
+                let pb_res = match kind_s {
+                    "favs" => crate::pb::favs(page).map_err(browser::BrowserError::Failed),
+                    "subs" => crate::pb::subs_feed(page).await,
+                    _ => crate::pb::list(page, p.q.as_deref()).await,
+                };
+                if let Ok(pb_items) = pb_res {
+                    pb_found = !pb_items.is_empty();
                     let mut combined = Vec::with_capacity(ph_items.len() + pb_items.len());
                     let mut ph_iter = ph_items.into_iter();
                     let mut pb_iter = pb_items.into_iter();
@@ -410,7 +435,7 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             }
             Json(json!({
             "items": ph_items,
-            "login": v["login"].as_bool() == Some(true) && !lost,
+            "login": (v["login"].as_bool() == Some(true) && !lost) || pb_found,
             "page": page,
             "name": v["name"].clone(),
             "avatar": v["avatar"].clone(),
@@ -563,8 +588,10 @@ pub async fn state(Query(p): Query<VideoQuery>) -> Response {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
     };
     if key.starts_with("pb:") {
-        // PimpBunny hat kein Konto: keine Likes, Favoriten oder Abos
-        return Json(json!({})).into_response();
+        return match crate::pb::state(&key, None) {
+            Ok(v) => Json(v).into_response(),
+            Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
+        };
     }
     run_state(&key, "").await
 }
@@ -575,7 +602,13 @@ pub async fn act(Json(b): Json<ActBody>) -> Response {
         return err(StatusCode::BAD_REQUEST, "Ungültige Aktion");
     }
     if b.key.starts_with("pb:") {
-        return err(StatusCode::BAD_REQUEST, "Das geht bei PimpBunny-Videos nicht.");
+        if b.action == "down" {
+            return err(StatusCode::BAD_REQUEST, "Dislike gibt es bei PimpBunny nicht.");
+        }
+        return match crate::pb::toggle(&b.key, &b.action, b.meta.as_ref()) {
+            Ok(v) => Json(v).into_response(),
+            Err(e) => err(StatusCode::BAD_REQUEST, e),
+        };
     }
     run_state(&b.key, &b.action).await
 }
