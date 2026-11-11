@@ -137,6 +137,8 @@
   .prog .fill { background: var(--acc); }
   .prog .knob { position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--acc); transform: scale(0); transition: transform .15s; }
   .prog:hover .knob, .prog.drag .knob, .touch .prog .knob { transform: scale(1); }
+  .prog .heat { position: absolute; left: 0; right: 0; bottom: 13px; height: 18px; pointer-events: none; display: block; }
+  .prog .heat path { fill: var(--acc); }
   .prog .tip { position: absolute; bottom: 24px; transform: translateX(-50%); background: rgba(20,18,19,.92); border-radius: 6px; padding: 2px 7px; font-size: 12px; font-weight: 600; display: none; white-space: nowrap; }
   .prog:hover .tip, .prog.drag .tip { display: block; }
   .crow { display: flex; align-items: center; gap: 2px; }
@@ -278,7 +280,7 @@
     <div class="fx l" id="fxL"><svg viewBox="0 0 24 24"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg><span>10 s</span></div><div class="fx r" id="fxR"><svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg><span>10 s</span></div><div class="fx c" id="fxC"></div>
     <div class="h2x" id="h2x">2× ▶▶</div>
     <div class="ctl" id="ctl">
-      <div class="prog" id="prog"><div class="tr"><div class="buf" id="pBuf"></div><div class="fill" id="pFill"></div></div><div class="knob" id="pKnob"></div><div class="tip" id="pTip"></div></div>
+      <div class="prog" id="prog"><svg class="heat" id="pHeat" viewBox="0 0 120 18" preserveAspectRatio="none" aria-hidden="true"></svg><div class="tr"><div class="buf" id="pBuf"></div><div class="fill" id="pFill"></div></div><div class="knob" id="pKnob"></div><div class="tip" id="pTip"></div></div>
       <div class="crow">
         <button class="ib" id="cPlay" type="button" aria-label="Abspielen/Pause"></button>
         <button class="ib" id="cBack" type="button" aria-label="10 Sekunden zurück"><svg viewBox="0 0 24 24"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg></button>
@@ -808,7 +810,7 @@
     pv.play().catch(() => {});
   }
   async function openVideo(key) {
-    const my = ++pTok; curKey = key; markWatched(key); hovHide();
+    const my = ++pTok; if (hKey) hClose(); curKey = key; markWatched(key); hovHide(); hOpen(key);
     pUp.hidden = true; applyState({ up: 0, down: 0, fav: 0, sub: 0 }); $('#pLikes').textContent = ''; $('#pDislikes').textContent = ''; $('#pToast').hidden = true;
     player.hidden = false; document.body.style.overflow = 'hidden';
     $('#pTitle').textContent = 'Lädt …'; $('#pSub').textContent = ''; pQ.replaceChildren(); pMsg.textContent = 'Video wird geladen …';
@@ -858,6 +860,49 @@
     $('#pBuf').style.width = d ? Math.min(1, b / d) * 100 + '%' : '0';
     $('#cTime').textContent = tfmt(t) + ' / ' + tfmt(d);
   }
+  // ---------- Gesehen-Heatmap: welche Stellen ohne Vorspulen angeschaut wurden (sammelt sich über alle Durchläufe) ----------
+  const HB = 120, HMIN = 3; // Abschnitte je Video, Mindestlänge eines Laufs am Stück in Sekunden
+  let hKey = '', hBins = null, hRun = null, hSaveT = 0;
+  const hLoad = (k) => { try { const a = JSON.parse(store.get('ph-heat:' + k, 'null')); return Array.isArray(a) && a.length === HB ? a : new Array(HB).fill(0); } catch { return new Array(HB).fill(0); } };
+  function hSave() {
+    if (!hKey || !hBins) return; hSaveT = Date.now();
+    store.set('ph-heat:' + hKey, JSON.stringify(hBins.map((v) => Math.round(v * 100) / 100)));
+    let idx = []; try { idx = JSON.parse(store.get('ph-heat-idx', '[]')); } catch {}
+    idx = [hKey].concat(idx.filter((k) => k !== hKey));
+    idx.splice(400).forEach((k) => { try { localStorage.removeItem('ph-heat:' + k); } catch {} });
+    store.set('ph-heat-idx', JSON.stringify(idx));
+  }
+  function hAdd(a, b) { // Strecke a..b (Sekunden) als gesehen gutschreiben: ein voller Abschnitt = +1
+    const d = pv.duration; if (!hBins || !d || !isFinite(d) || b <= a) return;
+    const w = d / HB;
+    for (let i = Math.max(0, Math.floor(a / w)); i < HB && i * w < b; i++) hBins[i] += Math.max(0, Math.min(b, (i + 1) * w) - Math.max(a, i * w)) / w;
+  }
+  function hFlush() { // laufenden Lauf abschließen (nur wenn er lang genug am Stück war)
+    if (hRun && hRun.last - hRun.start >= HMIN) { hAdd(hRun.done, hRun.last); hSave(); hDraw(); }
+    hRun = null;
+  }
+  function hTick() {
+    if (!hKey || pv.paused || pv.seeking || dragging) return;
+    const t = pv.currentTime;
+    if (!hRun) { hRun = { start: t, last: t, done: t }; return; }
+    const dt = t - hRun.last;
+    if (dt < 0 || dt > 2.5) { hFlush(); hRun = { start: t, last: t, done: t }; return; } // Sprung = gespult
+    hRun.last = t;
+    if (t - hRun.start >= HMIN && t - hRun.done >= 2) { hAdd(hRun.done, t); hRun.done = t; hDraw(); if (Date.now() - hSaveT > 8000) hSave(); }
+  }
+  function hDraw() {
+    const svg = $('#pHeat'); if (!hBins) { svg.innerHTML = ''; return; }
+    const sm = hBins.map((_, i) => (hBins[Math.max(0, i - 1)] + 2 * hBins[i] + hBins[Math.min(HB - 1, i + 1)]) / 4);
+    const mx = Math.max(...sm); if (mx < 0.05) { svg.innerHTML = ''; return; }
+    let d = 'M0 18'; sm.forEach((v, i) => { const y = (18 - 16 * v / mx).toFixed(2); d += ' L' + i + ' ' + y + ' L' + (i + 1) + ' ' + y; }); d += ' L' + HB + ' 18Z';
+    svg.innerHTML = '<path d="' + d + '"/>';
+    svg.style.opacity = Math.min(0.85, 0.3 + 0.15 * mx).toFixed(2); // je öfter geschaut, desto kräftiger
+  }
+  function hOpen(k) { hFlush(); hKey = k; hBins = hLoad(k); hDraw(); }
+  function hClose() { hFlush(); hSave(); hKey = ''; hBins = null; hDraw(); }
+  pv.addEventListener('timeupdate', hTick);
+  ['pause', 'seeking', 'emptied', 'ended', 'waiting'].forEach((e) => pv.addEventListener(e, hFlush));
+  addEventListener('pagehide', () => { hFlush(); hSave(); });
   ['play', 'pause', 'volumechange'].forEach((e) => pv.addEventListener(e, () => { sync(); wake(); }));
   ['timeupdate', 'progress', 'durationchange', 'loadedmetadata'].forEach((e) => pv.addEventListener(e, progress));
   document.addEventListener('fullscreenchange', sync);
@@ -953,7 +998,7 @@
     if (!peek.hidden) closePeek();
     veil.hidden = false; veil.focus();
   });
-  function closeVideo() { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); pv.playbackRate = 1; pTok++; curKey = ''; stop(); pv.removeAttribute('poster'); player.hidden = true; document.body.style.overflow = ''; document.title = kind === 'user' ? ($('#uName').textContent + ' · Pornhub') : 'Redswipe · Pornhub'; }
+  function closeVideo() { hClose(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); pv.playbackRate = 1; pTok++; curKey = ''; stop(); pv.removeAttribute('poster'); player.hidden = true; document.body.style.overflow = ''; document.title = kind === 'user' ? ($('#uName').textContent + ' · Pornhub') : 'Redswipe · Pornhub'; }
   function route() {
     const h = location.hash, m = h.match(/[#&]v=([A-Za-z0-9]+)/), u = h.match(/[#&]u=(\/[A-Za-z0-9_.\/-]+)/);
     if (m) { openVideo(m[1]); return; }
