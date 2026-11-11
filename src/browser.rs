@@ -384,7 +384,14 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
     // Erster Creator mit Link (Name und Creator-Seite), sonst der Name aus dem Player
     let model_name = meta["model"]["name"].as_str().unwrap_or("").trim();
     let upath = meta["model"]["path"].as_str().filter(|p| crate::pb::valid_user_path(p)).unwrap_or("");
-    let uploader = if model_name.is_empty() { meta["uploader"].as_str().unwrap_or("") } else { model_name };
+    // Der erste Link ist oft nur das Bild ohne Text: dann den ersten Namen aus der Liste im Player
+    let uploader = if !model_name.is_empty() {
+        model_name
+    } else if upath.is_empty() {
+        meta["uploader"].as_str().unwrap_or("")
+    } else {
+        meta["uploader"].as_str().unwrap_or("").split(',').next().unwrap_or("").trim()
+    };
     let items = meta["items"].as_array().cloned().unwrap_or_default();
 
     // Die Links selbst sind für den Server gesperrt; `/api/ph/media` löst sie beim Abspielen
