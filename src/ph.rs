@@ -73,7 +73,7 @@ fn browser_failed(e: browser::BrowserError) -> Response {
 const PARSE_JS: &str = r#"const parse=(doc)=>{const out=[],seen=new Set();
 const items=doc.querySelectorAll('li.pcVideoListItem[data-video-vkey], li[data-video-vkey]');
 for(const li of items){const k=li.getAttribute('data-video-vkey');if(!k||seen.has(k))continue;
-if(li.closest('#hottestMenuSection'))continue;
+if(li.closest('#hottestMenuSection, [id*="ecommend" i], [class*="ecommend" i], #relatedVideosCenter, .relatedVideos, [id*="elated" i]'))continue;
 const a=li.querySelector('a[href*="viewkey="]');if(!a)continue;const img=li.querySelector('img');
 const ta=li.querySelector('a.thumbnailTitle, .title a[href*="viewkey="]');
 const title=((ta&&(ta.getAttribute('title')||ta.textContent))||a.getAttribute('data-title')||(img&&(img.getAttribute('alt')||img.getAttribute('data-title')))||a.getAttribute('title')||'').trim();
@@ -99,7 +99,10 @@ const LIST_TAIL_JS: &str = r#"(()=>{const out=parse(document);
 const user=document.querySelector('#headerUserInfo, .userAvatar, [data-login-user], .profileUserName');
 const login=!!(document.querySelector('a[href*="/logout"]')||user||document.cookie.includes('il='));
 const h1=document.querySelector('h1');
-return {ok:true,items:out,login,url:location.href,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document),stats:statsOf(document)}})()"#;
+const nums=[...document.querySelectorAll('.pagination3 a, .pagination3 li, .page_number a')].map(e=>parseInt((e.textContent||'').trim(),10)).filter(n=>n>0);
+const cur=parseInt(new URL(location.href).searchParams.get('page')||'1',10)||1;
+const lastPg=nums.length?Math.max(...nums):0;
+return {ok:true,items:out,login,url:location.href,curPage:cur,lastPage:lastPg,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document),stats:statsOf(document)}})()"#;
 
 /// Alle Seiten eines Uploaders einsammeln (für die Suche in seinen Videos): Folgeseiten parallel
 /// im eingeloggten Tab nachladen, höchstens 30 Seiten bzw. ~28 s.
@@ -361,6 +364,11 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             // Ohne Login leitet Pornhub die Abo-Seite auf eine andere Liste um: dann nichts zeigen
             let landed = v["url"].as_str().unwrap_or("");
             let lost = subs && !landed.contains("subscriptions");
+            // Hinter der letzten Favoriten-Seite nichts nachladen (Pornhub leitet um oder zeigt Empfehlungen)
+            let cur = v["curPage"].as_u64().unwrap_or(1);
+            let last = v["lastPage"].as_u64().unwrap_or(0);
+            let past = p.kind.as_deref() == Some("favs") && page > 1 && (cur < page as u64 || (last > 0 && page as u64 > last));
+            let lost = lost || past;
             Json(json!({
             "items": if lost { json!([]) } else { v["items"].clone() },
             "login": v["login"].as_bool() == Some(true) && !lost,
