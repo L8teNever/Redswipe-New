@@ -467,6 +467,8 @@
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
   ::-webkit-scrollbar-thumb:hover { background: var(--p); background-clip: padding-box; }
   * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
+  /* Handy: kein System-Menü (Video herunterladen, Bild teilen …) beim Lang-Drücken */
+  video, img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
 </style>
 </head>
 <body>
@@ -3438,6 +3440,11 @@
   });
 })();
 </script>
+<script>/* Handy: Lang-Drücken öffnet kein System-Menü (Download/Teilen), außer in Eingabefeldern */
+(() => { let touch = false;
+  addEventListener('pointerdown', (e) => { touch = e.pointerType !== 'mouse'; }, true);
+  addEventListener('contextmenu', (e) => { if (touch && !e.target.closest('input,textarea,[contenteditable]')) e.preventDefault(); }, true);
+})();</script>
 <script>/* Akku: Im Hintergrund laufen keine Videos weiter */
 document.addEventListener('visibilitychange', () => { if (document.hidden) document.querySelectorAll('video, audio').forEach((m) => { if (!m.paused) m.pause(); }); });</script>
 <script>/* Als „Shorts“ in der Pornhub-Seite eingebettet: Link zurück dorthin ist überflüssig */ if (window.top !== window) document.querySelectorAll('a[target="_top"][href="/"]').forEach((a) => a.remove());</script>
