@@ -103,8 +103,15 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
         return { ok: true, items, title: document.title };
     })()"#;
 
-    let v = browser::eval_in_page(&url, js).await?;
-    let items = v["items"].as_array().cloned().unwrap_or_default();
+    let _permit = PAGES.acquire().await.map_err(|e| browser::BrowserError::Failed(e.to_string()))?;
+    let mut items = Vec::new();
+    for _ in 0..2 {
+        let v = browser::eval_in_page(&url, js).await?;
+        items = v["items"].as_array().cloned().unwrap_or_default();
+        if !items.is_empty() {
+            break;
+        }
+    }
     if !items.is_empty() {
         if let Ok(mut g) = CACHE.lock() {
             let m = g.get_or_insert_with(HashMap::new);
@@ -125,24 +132,64 @@ pub async fn resolve_file(url: &str) -> Result<String, browser::BrowserError> {
             return Ok(v);
         }
     }
-    // Nacheinander auflösen: der Player fragt dieselbe Datei mehrfach gleichzeitig an
+    // Nacheinander auflösen: der Player fragt dieselbe Datei mehrfach gleichzeitig an.
+    // Als eigene Aufgabe, damit ein abgebrochener Abruf den Tab im Browser trotzdem wieder schließt.
     static GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _gate = GATE.lock().await;
-    if let Some((t, v)) = FILES.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(url).cloned())) {
-        if t.elapsed() < Duration::from_secs(1200) {
+    let owned = url.to_string();
+    let v = tokio::spawn(async move {
+        let _gate = GATE.lock().await;
+        if let Some((t, v)) = FILES.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(&owned).cloned())) {
+            if t.elapsed() < Duration::from_secs(1200) {
+                return Ok(v);
+            }
+        }
+        let v = match browser::resolve_redirect(&owned).await {
+            Ok(v) => v,
+            Err(_) => browser::resolve_redirect(&owned).await?,
+        };
+        if let Ok(mut g) = FILES.lock() {
+            let m = g.get_or_insert_with(HashMap::new);
+            if m.len() > 500 {
+                m.clear();
+            }
+            m.insert(owned, (Instant::now(), v.clone()));
+        }
+        Ok::<String, browser::BrowserError>(v)
+    })
+    .await
+    .map_err(|e| browser::BrowserError::Failed(e.to_string()))??;
+    Ok(v)
+}
+
+/// Höchstens zwei PimpBunny-Seiten gleichzeitig im Server-Browser: bei vielen Tabs auf einmal laden sie nicht fertig.
+static PAGES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+/// Videoseite auflösen (Titel, Creator, Qualitäten), 10 Minuten zwischengespeichert, ein zweiter Versuch bei Fehler.
+pub async fn video(key: &str) -> Result<Value, browser::BrowserError> {
+    static VIDEOS: Mutex<Option<HashMap<String, (Instant, Value)>>> = Mutex::new(None);
+    let hit = |k: &str| VIDEOS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(k).cloned())).filter(|(t, _)| t.elapsed() < Duration::from_secs(600)).map(|(_, v)| v);
+    if let Some(v) = hit(key) {
+        return Ok(v);
+    }
+    let owned = key.to_string();
+    tokio::spawn(async move {
+        let _permit = PAGES.acquire().await.map_err(|e| browser::BrowserError::Failed(e.to_string()))?;
+        if let Some(v) = hit(&owned) {
             return Ok(v);
         }
-    }
-    let v = match browser::resolve_redirect(url).await {
-        Ok(v) => v,
-        Err(_) => browser::resolve_redirect(url).await?,
-    };
-    if let Ok(mut g) = FILES.lock() {
-        let m = g.get_or_insert_with(HashMap::new);
-        if m.len() > 500 {
-            m.clear();
+        let v = match browser::resolve_pb_video(&owned).await {
+            Ok(v) => v,
+            Err(_) => browser::resolve_pb_video(&owned).await?,
+        };
+        if let Ok(mut g) = VIDEOS.lock() {
+            let m = g.get_or_insert_with(HashMap::new);
+            if m.len() > 300 {
+                m.clear();
+            }
+            m.insert(owned, (Instant::now(), v.clone()));
         }
-        m.insert(url.to_string(), (Instant::now(), v.clone()));
-    }
-    Ok(v)
+        Ok::<Value, browser::BrowserError>(v)
+    })
+    .await
+    .map_err(|e| browser::BrowserError::Failed(e.to_string()))?
 }

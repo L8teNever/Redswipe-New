@@ -385,7 +385,9 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
         .filter_map(|it| {
             let u = it["u"].as_str()?;
             let u = u.find("https://").map(|i| &u[i..])?;
-            Some(json!({ "q": it["q"].as_u64().unwrap_or(0), "url": u }))
+            // Qualität steht im Dateinamen (…_1080p.mp4), sonst gilt der Platz in der Liste
+            let named = u.split(".mp4").next().and_then(|a| a.rsplit('_').next()).and_then(|a| a.strip_suffix('p')).and_then(|a| a.parse::<u64>().ok());
+            Some(json!({ "q": named.unwrap_or_else(|| it["q"].as_u64().unwrap_or(0)), "url": u }))
         })
         .collect();
     sources.sort_by_key(|s| std::cmp::Reverse(s["q"].as_u64().unwrap_or(0)));
@@ -425,7 +427,7 @@ pub async fn resolve_redirect(url: &str) -> Result<String, BrowserError> {
     };
     let started = Instant::now();
     let mut found = None;
-    while started.elapsed() < Duration::from_secs(20) {
+    while started.elapsed() < Duration::from_secs(9) {
         sleep(Duration::from_millis(400)).await;
         let Ok(resp) = http.get(format!("http://{addr}/json/list")).send().await else { continue };
         let Ok(list) = resp.json::<Value>().await else { continue };

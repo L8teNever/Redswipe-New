@@ -430,7 +430,7 @@ pub async fn video(Query(p): Query<VideoQuery>) -> Response {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
     };
     if let Some(pb_key) = key.strip_prefix("pb:") {
-        return match browser::resolve_pb_video(pb_key).await {
+        return match crate::pb::video(pb_key).await {
             Ok(v) => Json(v).into_response(),
             Err(e) => browser_failed(e),
         };
