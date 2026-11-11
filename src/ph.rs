@@ -315,9 +315,10 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
         }
         return match crate::pb::user(path, page).await {
             Ok((items, info)) => {
-                let mut out = json!({ "items": items, "page": page, "login": true });
+                let mut out = json!({ "items": &items, "page": page, "login": true });
+                // Hinter der letzten Seite liefert PimpBunny „Page not found“ als Überschrift
                 for k in ["name", "avatar", "stats"] {
-                    if !info[k].is_null() {
+                    if !items.is_empty() && !info[k].is_null() && info[k] != "" {
                         out[k] = info[k].clone();
                     }
                 }
