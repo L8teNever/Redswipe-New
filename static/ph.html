@@ -1484,7 +1484,7 @@
   });
   function closeVideo() { hClose(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); pv.playbackRate = 1; pTok++; curKey = ''; stop(); pv.removeAttribute('poster'); player.hidden = true; document.body.style.overflow = ''; document.title = kind === 'user' ? ($('#uName').textContent + ' · Pornhub') : 'Redswipe · Pornhub'; }
   function route() {
-    const h = location.hash, m = h.match(/[#&]v=([A-Za-z0-9]+)/), u = h.match(/[#&]u=(\/[A-Za-z0-9_.\/-]+)/);
+    const h = location.hash, m = h.match(/[#&]v=([A-Za-z0-9_:.-]+)/), u = h.match(/[#&]u=(\/[A-Za-z0-9_.\/-]+)/);
     if (m) { openVideo(m[1]); return; }
     if (!player.hidden) closeVideo();
     if (u) { const n = h.match(/[#&]n=([^&]*)/); openUser(u[1], n ? decodeURIComponent(n[1]) : ''); }
