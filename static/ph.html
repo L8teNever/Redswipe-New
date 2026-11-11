@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121011">
 <meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Redswipe">
 <title>Redswipe · Pornhub</title>
 <style>
   :root { --bg: #121011; --surf: #1d1a1b; --surf-2: #262223; --line: rgba(255,255,255,.08); --tx: #f3eeee; --tx-2: rgba(243,238,238,.62);
@@ -962,5 +969,7 @@
   route();
 })();
 </script>
+<script>/* PWA: nur Installierbarkeit, keine Hintergrundarbeit (siehe sw.js) */
+if ('serviceWorker' in navigator && window.top === window) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));</script>
 </body>
 </html>

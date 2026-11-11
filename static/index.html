@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#120f0e">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Redswipe</title>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/","@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.min.js"}}</script>
 <style>
@@ -875,7 +877,7 @@
       poolRefresh();
     } catch { wkState.textContent = 'Status nicht erreichbar.'; }
   }
-  setInterval(loadTick, 3000);
+  setInterval(() => { if (!document.hidden) loadTick(); }, 3000);
   $('#wkSave').addEventListener('click', async () => {
     const n = Math.max(1, Math.min(12, parseInt(wkN.value, 10) || 2));
     wkN.value = n;
@@ -2337,9 +2339,15 @@
         }
         render(d.stats || {});
       } catch { /* nochmal */ }
-      setTimeout(tick, 4000);
+      later();
     };
-    setTimeout(tick, 3000);
+    // Im Hintergrund nicht abfragen: erst weitermachen, wenn die Seite wieder sichtbar ist
+    const later = (ms = 4000) => {
+      if (!document.hidden) { setTimeout(tick, ms); return; }
+      const v = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', v); setTimeout(tick, 500); };
+      document.addEventListener('visibilitychange', v);
+    };
+    later(3000);
   }
 
   // Lädt Seiten, bis Beiträge mit Medien da sind (höchstens 5 leere Seiten hintereinander)
@@ -3430,6 +3438,8 @@
   });
 })();
 </script>
+<script>/* Akku: Im Hintergrund laufen keine Videos weiter */
+document.addEventListener('visibilitychange', () => { if (document.hidden) document.querySelectorAll('video, audio').forEach((m) => { if (!m.paused) m.pause(); }); });</script>
 <script>/* Als „Shorts“ in der Pornhub-Seite eingebettet: Link zurück dorthin ist überflüssig */ if (window.top !== window) document.querySelectorAll('a[target="_top"][href="/"]').forEach((a) => a.remove());</script>
 </body>
 </html>
