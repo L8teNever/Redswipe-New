@@ -46,6 +46,8 @@ pub struct VideoQuery {
 #[derive(Deserialize)]
 pub struct MediaQuery {
     u: Option<String>,
+    /// Gesetzt = ganzes Video laden (langer Timeout); nicht leer = als Datei mit diesem Namen herunterladen
+    dl: Option<String>,
 }
 
 fn valid_key(s: &str) -> bool {
@@ -620,7 +622,7 @@ pub async fn media(headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response 
         .get(url.clone())
         .header(header::REFERER, format!("{SITE}/"))
         .header(header::ORIGIN, SITE)
-        .timeout(Duration::from_secs(60));
+        .timeout(Duration::from_secs(if q.dl.is_some() { 3 * 3600 } else { 60 }));
     if let Some(range) = headers.get(header::RANGE) {
         req = req.header(header::RANGE, range.as_bytes());
     }
@@ -649,6 +651,12 @@ pub async fn media(headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response 
     let mut b = Response::builder()
         .status(StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK))
         .header(header::CACHE_CONTROL, "private, max-age=3600");
+    if let Some(name) = q.dl.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        let name: String = name.chars().filter(|c| !c.is_control() && !"\\/:*?\"<>|".contains(*c)).take(150).collect();
+        let ascii: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || " .-_()".contains(c) { c } else { '_' }).collect();
+        let enc: String = urlencoding::encode(&name).into_owned();
+        b = b.header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{ascii}.mp4\"; filename*=UTF-8''{enc}.mp4"));
+    }
     for name in [header::CONTENT_TYPE, header::CONTENT_LENGTH, header::CONTENT_RANGE, header::ACCEPT_RANGES] {
         if let Some(v) = resp.headers().get(&name) {
             b = b.header(name, v.as_bytes());

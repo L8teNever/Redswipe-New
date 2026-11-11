@@ -136,6 +136,7 @@ async fn main() {
         .route_service("/abos", no_cache(&ph_page))
         .route_service("/favoriten", no_cache(&ph_page))
         .route_service("/suche", no_cache(&ph_page))
+        .route_service("/offline", no_cache(&ph_page))
         .route_service("/redswipe", no_cache(&index))
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/feed", get(feed))

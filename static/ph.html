@@ -138,6 +138,23 @@
   .prog .knob { position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--acc); transform: scale(0); transition: transform .15s; }
   .prog:hover .knob, .prog.drag .knob, .touch .prog .knob { transform: scale(1); }
   .pill .i-on, .pill.on .i-off { display: none; }
+  .offb { position: absolute; left: 8px; top: 8px; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,.75); color: var(--acc); border-radius: 6px; padding: 2px 6px 2px 4px; font-size: 11.5px; font-weight: 700; }
+  .offb svg { width: 14px; height: 14px; fill: currentColor; }
+  .offdel { position: absolute; right: 6px; top: 6px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(0,0,0,.75); color: #fff; display: grid; place-items: center; cursor: pointer; }
+  .offdel svg { width: 19px; height: 19px; fill: currentColor; }
+  .offdel:hover { background: #c0392b; }
+  .offhd { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--tx-2); font-size: 13.5px; }
+  .offhd .sp { flex: 1; }
+  .pill.ofb .pct { font-variant-numeric: tabular-nums; }
+  /* Eigener Mini-Player in der Schnellansicht */
+  .kctl { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 18px 8px 4px; background: linear-gradient(transparent, rgba(0,0,0,.75)); transition: opacity .25s; }
+  .pkv.idle .kctl { opacity: 0; pointer-events: none; }
+  .kctl .ib { width: 36px; height: 36px; color: #fff; }
+  .kctl .ib svg { width: 22px; height: 22px; fill: currentColor; }
+  .kctl .tm { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kctl .prog { flex: 1; }
+  .kctl .prog .knob { transform: scale(1); }
+  .kgz { position: absolute; inset: 0; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   .pill.on .i-on { display: inline; }
   .prog .heat { position: absolute; left: 0; right: 0; bottom: 13px; height: 18px; pointer-events: none; display: block; }
   .prog .heat path { fill: var(--acc); }
@@ -248,6 +265,7 @@
     <button class="tab" type="button" data-k="favs"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg><span class="tl">Favoriten</span></button>
     <button class="tab" type="button" data-k="search"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span class="tl">Suche</span></button>
     <button class="tab" type="button" data-k="shorts"><svg viewBox="0 0 24 24"><path d="M17.77 10.32l-1.2-.5L18 9.06a3.74 3.74 0 0 0-3.5-6.62L6 6.94a3.74 3.74 0 0 0 .23 6.74l1.2.49L6 14.93a3.75 3.75 0 0 0 3.5 6.63l8.5-4.5a3.74 3.74 0 0 0-.23-6.74zM10 14.65V9.35L15 12l-5 2.65z"/></svg><span class="tl">Shorts</span></button>
+    <button class="tab" type="button" data-k="offline"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg><span class="tl">Offline</span></button>
   </nav>
   <div class="shbar" id="shBar"><button class="shsrc" type="button" data-t="srcBtn" title="Quelle wählen"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span id="shLbl">Mein Feed</span><small id="shSub"></small></button><div class="shgrp"><button class="ib" type="button" data-t="scanListBtn" title="Gescannte Videos" aria-label="Gescannte Videos"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button><button class="ib" type="button" data-t="holoBtn" title="Hologramm" aria-label="Hologramm"><svg viewBox="0 0 24 24"><path d="M12 2L2 12l10 10 10-10L12 2zm0 4.83L17.17 12 12 17.17 6.83 12 12 6.83z"/></svg></button><button class="ib" type="button" data-t="followSheetBtn" title="Gefolgte Creator" aria-label="Gefolgte Creator"><svg viewBox="0 0 24 24"><path d="M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z"/></svg></button><button class="ib" type="button" data-t="moreBtn" title="Weitere Werkzeuge" aria-label="Weitere Werkzeuge"><svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg></button><button class="ib" type="button" data-t="setBtn" title="Einstellungen" aria-label="Einstellungen"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button></div></div>
   <form class="search" hidden><input id="q" type="search" placeholder="Suchen …" enterkeyhint="search" autocomplete="off"></form>
@@ -265,7 +283,7 @@
 </div></div>
 
 <div id="peek" hidden><div class="pk" role="dialog" aria-label="Schnellansicht">
-  <div class="pkv"><video id="kv" playsinline muted loop autoplay></video></div>
+  <div class="pkv"><video id="kv" playsinline muted loop autoplay></video><div class="kgz" id="kgz"></div><div class="kctl" id="kctl" hidden><button class="ib" id="kPlay" type="button" aria-label="Abspielen/Pause"></button><div class="prog" id="kProg"><div class="tr"><div class="buf" id="kBuf"></div><div class="fill" id="kFill"></div></div><div class="knob" id="kKnob"></div></div><span class="tm" id="kTime">0:00</span><button class="ib" id="kMute" type="button" aria-label="Ton"></button></div></div>
   <div class="pki"><b id="kTitle"></b><span id="kSub"></span></div>
   <div class="pka" id="kActs"></div>
   <div class="toast" id="kToast" hidden></div>
@@ -301,6 +319,8 @@
     <button class="pill" type="button" data-a="down" aria-label="Gefällt mir nicht"><svg viewBox="0 0 24 24"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg><span id="pDislikes"></span></button>
     <button class="pill" type="button" data-a="fav"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg><span>Favorit</span></button>
     <button class="pill" type="button" data-a="sub"><svg viewBox="0 0 24 24"><path class="i-off" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/><path class="i-on" d="M9 17l3-2.94c-.39-.04-.68-.06-1-.06-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4m4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41z"/></svg><span id="pSubTxt">Abonnieren</span></button>
+    <button class="pill dlb" type="button" id="pDl" aria-label="Video als Datei herunterladen"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span>Herunterladen</span></button>
+    <button class="pill ofb" type="button" id="pOff" aria-label="Offline verfügbar machen"><svg viewBox="0 0 24 24"><path class="i-off" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/><path class="i-on" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg><span>Offline</span></button>
   </div>
 </div>
 
@@ -312,8 +332,8 @@
   const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
   const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
-  const TABS = ['home', 'subs', 'favs', 'search', 'shorts'];
-  const PATHS = { home: '/', subs: '/abos', favs: '/favoriten', search: '/suche', shorts: '/shorts' };
+  const TABS = ['home', 'subs', 'favs', 'search', 'shorts', 'offline'];
+  const PATHS = { home: '/', subs: '/abos', favs: '/favoriten', search: '/suche', shorts: '/shorts', offline: '/offline' };
   const pathKind = () => { const p = location.pathname.replace(/\/+$/, '') || '/'; return TABS.find((k) => PATHS[k] === p) || 'home'; };
   function syncUrl(k) { if (PATHS[k] && (location.pathname.replace(/\/+$/, '') || '/') !== PATHS[k]) history.pushState(null, '', PATHS[k]); }
   const uHead = $('#uHead');
@@ -338,6 +358,7 @@
 
   async function more() {
     if (busy || done || kind === 'shorts') return;
+    if (kind === 'offline') return offList();
     if (kind === 'search' && !q.trim()) { state(smode === 'p' ? 'Gib oben einen Namen ein.' : 'Gib oben einen Suchbegriff ein.'); return; }
     if (kind === 'search' && smode === 'p') return morePeople();
     busy = true; const my = token;
@@ -401,6 +422,76 @@
     return c;
   }
 
+  // ---------- Offline: Videos in der App speichern (Cache Storage, nur auf diesem Gerät) ----------
+  const OFFC = 'ph-offline', offUrl = (k, ext) => '/__offline/' + k + '.' + ext;
+  let offMeta = {}; try { offMeta = JSON.parse(store.get('ph-off', '{}')) || {}; } catch {}
+  const offSave = () => store.set('ph-off', JSON.stringify(offMeta));
+  const offHas = (k) => !!(offMeta[k] && offMeta[k].done);
+  const offJobs = new Map(); // key -> { pct, ctl }
+  const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2).replace('.', ',') + ' GB' : Math.round(n / 1e6) + ' MB';
+  const OFF_IC = '<svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg>';
+  function offBadge(k) {
+    document.querySelectorAll('.card[data-k="' + k + '"] .thumb').forEach((th) => {
+      const b = th.querySelector('.offb'); if (offHas(k) && !b) { const x = el('span', 'offb'); x.innerHTML = OFF_IC + 'Offline'; th.appendChild(x); } else if (!offHas(k) && b) b.remove();
+    });
+  }
+  async function offThumb(k) { try { const c = await caches.open(OFFC); const r = await c.match(offUrl(k, 'jpg')); return r ? URL.createObjectURL(await r.blob()) : ''; } catch { return ''; } }
+  async function offStore(key, info, src) {
+    if (offJobs.has(key) || offHas(key)) return;
+    if (!window.caches) throw new Error('Dieser Browser kann keine Videos offline speichern.');
+    try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch {}
+    const ctl = new AbortController(), job = { pct: 0, ctl }; offJobs.set(key, job); offUi();
+    try {
+      const c = await caches.open(OFFC);
+      if (info.thumb) { try { const t = await fetch(px(info.thumb)); if (t.ok) await c.put(offUrl(key, 'jpg'), t); } catch {} }
+      const r = await fetch(px(src.url) + '&dl=', { signal: ctl.signal });
+      if (!r.ok || !r.body) throw new Error('Download fehlgeschlagen (HTTP ' + r.status + ')');
+      const total = +r.headers.get('content-length') || 0; let got = 0, last = 0;
+      const body = r.body.pipeThrough(new TransformStream({ transform(ch, tc) { got += ch.byteLength; if (Date.now() - last > 400) { last = Date.now(); job.got = got; job.pct = total ? Math.floor(got / total * 100) : -1; offUi(); } tc.enqueue(ch); } }));
+      await c.put(offUrl(key, 'mp4'), new Response(body, { headers: { 'Content-Type': 'video/mp4' } }));
+      if (total && got < total) throw new Error('Download abgebrochen');
+      offMeta[key] = { title: info.title || '', uploader: info.uploader || '', upath: info.upath || '', duration: info.duration || '', thumb: info.thumb || '', q: src.q || 0, size: got, at: Date.now(), done: true };
+      offSave();
+    } catch (e) {
+      try { const c = await caches.open(OFFC); await c.delete(offUrl(key, 'mp4')); await c.delete(offUrl(key, 'jpg')); } catch {}
+      if (e.name !== 'AbortError') throw e;
+    } finally { offJobs.delete(key); offUi(); offBadge(key); }
+  }
+  async function offDelete(key) {
+    const j = offJobs.get(key); if (j) j.ctl.abort();
+    try { const c = await caches.open(OFFC); await c.delete(offUrl(key, 'mp4')); await c.delete(offUrl(key, 'jpg')); } catch {}
+    delete offMeta[key]; offSave(); offBadge(key); offUi();
+  }
+  // Reste aufräumen: Einträge im Cache ohne fertige Metadaten (z. B. abgebrochener Download) löschen
+  (async () => { try { if (!window.caches) return; const c = await caches.open(OFFC); for (const req of await c.keys()) { const m = new URL(req.url).pathname.match(/^\/__offline\/([^.]+)\./); if (!m || !offHas(m[1])) await c.delete(req); } for (const k of Object.keys(offMeta)) if (!offHas(k)) delete offMeta[k]; offSave(); } catch {} })();
+  function offUi() { // Offline-Knopf im Player
+    const b = $('#pOff'); if (!b || !curKey) return;
+    const j = offJobs.get(curKey), has = offHas(curKey);
+    b.classList.toggle('on', has); b.classList.toggle('busy', false);
+    b.lastChild.textContent = j ? 'Lädt … ' + (j.pct >= 0 ? j.pct + ' %' : mb(j.got || 0)) : has ? 'Offline gespeichert' : 'Offline';
+  }
+  function offList() {
+    const keys = Object.keys(offMeta).filter(offHas).sort((a, b) => offMeta[b].at - offMeta[a].at);
+    foot.replaceChildren(); grid.replaceChildren(); done = true;
+    if (!keys.length) { state('Noch keine Videos offline gespeichert.<br>Öffne ein Video und tippe auf <b>Offline</b>.'); return; }
+    const total = keys.reduce((n, k) => n + (offMeta[k].size || 0), 0);
+    const hd = el('div', 'offhd'); hd.append(el('span', '', keys.length + (keys.length === 1 ? ' Video' : ' Videos') + ' · ' + mb(total) + ' auf diesem Gerät'), el('span', 'sp'));
+    const all = el('button', 'pill', 'Alle löschen'); all.type = 'button';
+    all.onclick = async () => { if (!confirm('Alle ' + keys.length + ' Offline-Videos von diesem Gerät löschen?')) return; for (const k of keys) await offDelete(k); try { await caches.delete(OFFC); } catch {} offList(); };
+    hd.appendChild(all); grid.appendChild(hd);
+    keys.forEach((k) => {
+      const m = offMeta[k], c = card({ key: k, title: m.title, uploader: m.uploader, upath: m.upath, duration: m.duration, thumb: m.thumb });
+      const th = c.querySelector('.thumb'), img = th.querySelector('img');
+      img.onerror = () => { img.onerror = null; offThumb(k).then((u) => { if (u) img.src = u; }); };
+      if (!navigator.onLine) offThumb(k).then((u) => { if (u) img.src = u; });
+      const del = el('button', 'offdel'); del.type = 'button'; del.setAttribute('aria-label', 'Vom Gerät löschen');
+      del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
+      del.addEventListener('click', async (e) => { e.stopPropagation(); if (!confirm('„' + (m.title || 'Video') + '“ vom Gerät löschen?')) return; await offDelete(k); offList(); });
+      th.appendChild(del);
+      const cm = c.querySelector('.cm') || c.appendChild(el('div', 'cm')); cm.append(' · ' + mb(m.size || 0));
+      grid.appendChild(c);
+    });
+  }
   function card(it) {
     const c = el('div', 'card'); c.dataset.k = it.key; const th = el('div', 'thumb'), img = el('img');
     img.loading = 'lazy'; img.alt = ''; img.src = px(it.thumb);
@@ -408,6 +499,7 @@
     if (it.duration) th.appendChild(el('span', 'dur', it.duration));
     c.append(th, el('div', 'ct', it.title));
     if (it.watched || watchedSet.has(it.key)) { c.classList.add('w'); th.appendChild(el('span', 'seen', 'Gesehen')); }
+    if (offHas(it.key)) { const b = el('span', 'offb'); b.innerHTML = OFF_IC + 'Offline'; th.appendChild(b); }
     if (it.uploader || it.views) {
       const cm = el('div', 'cm');
       if (it.uploader && it.upath) {
@@ -623,7 +715,7 @@
   // ---------- Player ----------
   const player = $('#player'), pv = $('#pv'), pMsg = $('#pMsg'), pQ = $('#pQ');
   let hls = null, pTok = 0, hlsLib = null, curKey = '', toastT = 0;
-  const pUp = $('#pUp'), pills = {}; document.querySelectorAll('.pill').forEach((b) => { pills[b.dataset.a] = b; });
+  const pUp = $('#pUp'), pills = {}; document.querySelectorAll('.pill[data-a]').forEach((b) => { pills[b.dataset.a] = b; });
   const fmtN = (n) => !n ? '' : n >= 1e6 ? (n / 1e6).toFixed(1).replace('.0', '').replace('.', ',') + ' Mio.' : n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '').replace('.', ',') + 'K' : String(n);
   function toast(msg) { const t = $('#pToast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 4000); }
   function applyState(s) {
@@ -652,6 +744,25 @@
     try { const d = await act(key, b.dataset.a); if (key === curKey) applyState(d); }
     catch (e) { if (key === curKey) toast(e.message); } finally { b.classList.remove('busy'); }
   }));
+
+  // ---------- Herunterladen / Offline ----------
+  let curInfo = null, curSources = [];
+  const curSrc = () => curSources.find((x) => x.url === pQ.value) || curSources[0];
+  $('#pDl').addEventListener('click', () => {
+    const name = (curInfo && curInfo.title || 'video').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 150) || 'video', a = document.createElement('a');
+    if (offBlob) { a.href = offBlob; a.download = name + '.mp4'; }
+    else { const s = curSrc(); if (!s) { toast('Video ist noch nicht geladen.'); return; } a.href = px(s.url) + '&dl=' + encodeURIComponent(name); a.download = name + '.mp4'; }
+    document.body.appendChild(a); a.click(); a.remove(); toast('Download gestartet');
+  });
+  $('#pOff').addEventListener('click', async () => {
+    const key = curKey; if (!key) return;
+    const j = offJobs.get(key);
+    if (j) { if (confirm('Speichern abbrechen?')) offDelete(key); return; }
+    if (offHas(key)) { if (confirm('Offline-Kopie von diesem Gerät löschen?')) { await offDelete(key); toast('Vom Gerät gelöscht'); } return; }
+    const s = curSrc(); if (!s || !curInfo) { toast('Video ist noch nicht geladen.'); return; }
+    try { await offStore(key, curInfo, s); if (offHas(key) && key === curKey) toast('Offline gespeichert (' + mb(offMeta[key].size || 0) + ')'); }
+    catch (e) { if (key === curKey) toast(e.message); }
+  });
 
   // ---------- Hover-Karte (PC) ----------
   const hov = $('#hov'), hvImg = $('#hov img'), hvVid = $('#hov video'), hvA = $('#hvA');
@@ -766,7 +877,7 @@
     $('#kTitle').textContent = it.title || '';
     $('#kSub').textContent = [it.uploader, it.duration, it.views && it.views + ' Aufrufe'].filter(Boolean).join(' · ');
     kApply({ up: 0, fav: 0, sub: 0 }); kPills.up.lastChild.textContent = ''; $('#kToast').hidden = true;
-    kv.controls = false; kv.muted = true; kv.loop = true; kv.poster = px(it.thumb);
+    kv.controls = false; kv.muted = true; kv.loop = true; kv.poster = px(it.thumb); $('#kctl').hidden = true;
     if (it.preview) { kv.src = px(it.preview); kv.play().catch(() => {}); } else kv.removeAttribute('src');
     peek.hidden = false; document.body.style.overflow = 'hidden';
     fetch('/api/ph/state?key=' + encodeURIComponent(key)).then((r) => r.ok ? r.json() : null).then((d) => { if (d && key === peekKey) kApply(d); }).catch(() => {});
@@ -778,12 +889,12 @@
       const mp4 = d.sources.filter((s) => !/\.m3u8/i.test(s.url));
       const pick = mp4.find((s) => s.q <= 480) || mp4[mp4.length - 1];
       if (!pick) return;
-      kv.loop = false; kv.controls = true; kv.src = px(pick.url); kv.play().catch(() => {});
+      kv.loop = false; kv.src = px(pick.url); kv.play().catch(() => {}); kctl.hidden = false; kWake(); kProgress();
       markWatched(key);
     } catch {}
   }
   function closePeek() {
-    peekKey = ''; peek.hidden = true; kv.pause(); kv.removeAttribute('src'); kv.removeAttribute('poster'); kv.load();
+    peekKey = ''; peek.hidden = true; $('#kctl').hidden = true; kv.pause(); kv.removeAttribute('src'); kv.removeAttribute('poster'); kv.load();
     if (player.hidden) document.body.style.overflow = '';
   }
   peek.addEventListener('click', (e) => { if (e.target === peek) closePeek(); });
@@ -792,7 +903,8 @@
     if (window.Hls) return Promise.resolve(window.Hls);
     return hlsLib || (hlsLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js'; s.onload = () => res(window.Hls); s.onerror = () => { hlsLib = null; rej(new Error('Player-Bibliothek nicht ladbar')); }; document.head.appendChild(s); }));
   }
-  function stop() { if (hls) { hls.destroy(); hls = null; } pv.onerror = null; pv.pause(); pv.removeAttribute('src'); pv.load(); }
+  let offBlob = '';
+  function stop() { if (offBlob) { URL.revokeObjectURL(offBlob); offBlob = ''; } if (hls) { hls.destroy(); hls = null; } pv.onerror = null; pv.pause(); pv.removeAttribute('src'); pv.load(); }
   async function play(url) {
     const t = pv.currentTime || 0;
     stop(); pMsg.textContent = '';
@@ -816,6 +928,25 @@
     pUp.hidden = true; applyState({ up: 0, down: 0, fav: 0, sub: 0 }); $('#pLikes').textContent = ''; $('#pDislikes').textContent = ''; $('#pToast').hidden = true;
     player.hidden = false; document.body.style.overflow = 'hidden';
     $('#pTitle').textContent = 'Lädt …'; $('#pSub').textContent = ''; pQ.replaceChildren(); pMsg.textContent = 'Video wird geladen …';
+    curInfo = null; curSources = []; offUi();
+    if (offHas(key)) {
+      try {
+        const c = await caches.open(OFFC), r = await c.match(offUrl(key, 'mp4'));
+        if (my !== pTok) return;
+        if (r) {
+          const m = offMeta[key], blob = await r.blob(); if (my !== pTok) return;
+          curInfo = { title: m.title, uploader: m.uploader, upath: m.upath, duration: m.duration, thumb: m.thumb };
+          $('#pTitle').textContent = m.title || 'Video'; document.title = (m.title || 'Video') + ' · Pornhub';
+          $('#pSub').textContent = [m.uploader, m.duration, 'offline gespeichert'].filter(Boolean).join(' · ');
+          if (m.upath) { pUp.dataset.path = m.upath; pUp.dataset.name = m.uploader || ''; $('#pUpName').textContent = m.uploader; $('#pUpAva').textContent = (m.uploader || '?').charAt(0); pUp.hidden = false; }
+          const o = el('option', '', (m.q ? m.q + 'p ' : '') + 'offline'); pQ.appendChild(o); pQ.onchange = null;
+          offThumb(key).then((u) => { if (u && my === pTok) pv.poster = u; });
+          stop(); pMsg.textContent = ''; offBlob = URL.createObjectURL(blob); pv.src = offBlob; pv.play().catch(() => {});
+          if (navigator.onLine) loadState(key);
+          offUi(); return;
+        }
+      } catch {}
+    }
     try {
       const r = await fetch('/api/ph/video?key=' + encodeURIComponent(key));
       const d = await r.json().catch(() => ({}));
@@ -832,6 +963,7 @@
       loadState(key);
       $('#pSub').textContent = [d.uploader && d.uploader.name, mins].filter(Boolean).join(' · ');
       if (d.thumb) pv.poster = px(d.thumb);
+      curSources = d.sources; curInfo = { title: d.title || '', uploader: d.uploader && d.uploader.name || '', upath: d.uploader && d.uploader.path || '', duration: mins, thumb: d.thumb || '' }; offUi();
       const want = +store.get('ph-quality', '720');
       let pick = d.sources.find((s) => s.q <= want) || d.sources[d.sources.length - 1];
       d.sources.forEach((s) => { const o = el('option', '', s.q ? s.q + 'p' : 'Auto'); o.value = s.url; if (s === pick) o.selected = true; pQ.appendChild(o); });
@@ -862,6 +994,30 @@
     $('#pBuf').style.width = d ? Math.min(1, b / d) * 100 + '%' : '0';
     $('#cTime').textContent = tfmt(t) + ' / ' + tfmt(d);
   }
+  // ---------- Eigener Mini-Player in der Schnellansicht (statt der Standard-Steuerung des Browsers) ----------
+  const kctl = $('#kctl'), kBox = kv.parentNode, kProg = $('#kProg'), kPlay = $('#kPlay'), kMute = $('#kMute');
+  let kIdleT = 0, kDrag = false, kDragT = 0;
+  function kWake() { kBox.classList.remove('idle'); clearTimeout(kIdleT); kIdleT = setTimeout(() => { if (!kv.paused && !kDrag) kBox.classList.add('idle'); }, 2500); }
+  function kSync() { kPlay.innerHTML = kv.paused ? IC.play : IC.pause; kMute.innerHTML = kv.muted ? IC.mute : IC.vol; }
+  function kProgress() {
+    const d = kv.duration || 0, t = kDrag ? kDragT : kv.currentTime, f = d ? Math.min(1, t / d) * 100 + '%' : '0';
+    $('#kFill').style.width = f; $('#kKnob').style.left = f;
+    let b = 0; for (let i = 0; i < kv.buffered.length; i++) if (kv.buffered.start(i) <= kv.currentTime) b = kv.buffered.end(i);
+    $('#kBuf').style.width = d ? Math.min(1, b / d) * 100 + '%' : '0';
+    $('#kTime').textContent = tfmt(t) + ' / ' + tfmt(d);
+  }
+  ['play', 'pause', 'volumechange'].forEach((e) => kv.addEventListener(e, () => { kSync(); if (!kctl.hidden) kWake(); }));
+  ['timeupdate', 'progress', 'durationchange', 'loadedmetadata'].forEach((e) => kv.addEventListener(e, () => { if (!kctl.hidden) kProgress(); }));
+  $('#kgz').addEventListener('click', () => { if (kctl.hidden) return; if (kBox.classList.contains('idle')) { kWake(); return; } if (kv.paused) kv.play().catch(() => {}); else kv.pause(); kWake(); });
+  kPlay.addEventListener('click', () => { if (kv.paused) kv.play().catch(() => {}); else kv.pause(); kWake(); });
+  kMute.addEventListener('click', () => { kv.muted = !kv.muted; kWake(); });
+  const kPos = (e) => { const r = kProg.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (kv.duration || 0); };
+  kProg.addEventListener('pointerdown', (e) => { if (!kv.duration) return; kDrag = true; kProg.classList.add('drag'); kProg.setPointerCapture(e.pointerId); kDragT = kPos(e); kProgress(); kWake(); });
+  kProg.addEventListener('pointermove', (e) => { if (kDrag) { kDragT = kPos(e); kProgress(); } });
+  kProg.addEventListener('pointerup', (e) => { if (!kDrag) return; kDrag = false; kProg.classList.remove('drag'); kv.currentTime = kPos(e); kProgress(); kWake(); });
+  kProg.addEventListener('pointercancel', () => { kDrag = false; kProg.classList.remove('drag'); });
+  kSync();
+
   // ---------- Gesehen-Heatmap: welche Stellen ohne Vorspulen angeschaut wurden (sammelt sich über alle Durchläufe) ----------
   const HB = 120, HMIN = 3; // Abschnitte je Video, Mindestlänge eines Laufs am Stück in Sekunden
   let hKey = '', hBins = null, hRun = null, hSaveT = 0;
@@ -1014,7 +1170,7 @@
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !peek.hidden) { closePeek(); return; } if (e.key === 'Escape' && !player.hidden) $('#pBack').click(); });
 
   store.set('ph-kind', pathKind());
-  if (!/[#&]u=/.test(location.hash)) setKind(pathKind(), false);
+  if (!/[#&]u=/.test(location.hash)) setKind(!navigator.onLine && Object.keys(offMeta).some(offHas) ? 'offline' : pathKind(), false);
   route();
 })();
 </script>
