@@ -358,11 +358,6 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
             { q: 1080, u: conf.video_alt_url3 },
             { q: 1440, u: conf.video_alt_url4 }
         ].filter(x => x.u);
-        items.forEach(it => {
-            const vid = document.createElement('video');
-            vid.preload = 'metadata';
-            vid.src = it.u;
-        });
         return {
             title: (conf.video_title || document.title || '').trim(),
             uploader: (conf.video_models || '').trim(),
@@ -377,50 +372,25 @@ async fn run_pb_video(addr: &str, id: &str, _page_url: &str) -> Result<Value, Br
         json!({"expression": expr, "returnByValue": true}),
     )
     .await?;
-    n += 1;
 
     let meta = r["result"]["result"]["value"].clone();
     let title = meta["title"].as_str().unwrap_or("PimpBunny Video");
     let uploader = meta["uploader"].as_str().unwrap_or("");
     let items = meta["items"].as_array().cloned().unwrap_or_default();
 
-    let mut mapping = std::collections::HashMap::new();
-    let listen_start = Instant::now();
-    while listen_start.elapsed() < Duration::from_secs(4) && mapping.len() < items.len() {
-        let msg = timeout(Duration::from_millis(800), ws.next()).await;
-        if let Ok(Some(Ok(Message::Text(t)))) = msg {
-            if let Ok(v) = serde_json::from_str::<Value>(&t) {
-                if v["method"].as_str() == Some("Network.requestWillBeSent") {
-                    let params = &v["params"];
-                    if let Some(target_url) = params["request"]["url"].as_str() {
-                        if target_url.contains(".mp4") {
-                            if let Some(orig) = params["redirectResponse"]["url"].as_str() {
-                                mapping.insert(orig.to_string(), target_url.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let mut sources = Vec::new();
-    for it in &items {
-        let q = it["q"].as_u64().unwrap_or(0);
-        let orig_u = it["u"].as_str().unwrap_or("");
-        if let Some(st_url) = mapping.get(orig_u) {
-            sources.push(json!({ "q": q, "url": st_url }));
-        }
-    }
-    if sources.is_empty() {
-        for target_url in mapping.values() {
-            sources.push(json!({ "q": 720, "url": target_url }));
-        }
-    }
+    // Die Links selbst sind für den Server gesperrt; `/api/ph/media` löst sie beim Abspielen
+    // über den Browser auf den Speicher-Server auf (nur die Qualität, die wirklich läuft).
+    let mut sources: Vec<Value> = items
+        .iter()
+        .filter_map(|it| {
+            let u = it["u"].as_str()?;
+            let u = u.find("https://").map(|i| &u[i..])?;
+            Some(json!({ "q": it["q"].as_u64().unwrap_or(0), "url": u }))
+        })
+        .collect();
     sources.sort_by_key(|s| std::cmp::Reverse(s["q"].as_u64().unwrap_or(0)));
-
     if sources.is_empty() {
-        return Err(BrowserError::Failed("Kein PimpBunny-Stream auflösbar".into()));
+        return Err(BrowserError::Failed("PimpBunny hat kein Video geliefert (Seite nicht fertig geladen oder Video entfernt)".into()));
     }
 
     Ok(json!({
