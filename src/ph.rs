@@ -102,7 +102,8 @@ const h1=document.querySelector('h1');
 const nums=[...document.querySelectorAll('.pagination3 a, .pagination3 li, .page_number a')].map(e=>parseInt((e.textContent||'').trim(),10)).filter(n=>n>0);
 const cur=parseInt(new URL(location.href).searchParams.get('page')||'1',10)||1;
 const lastPg=nums.length?Math.max(...nums):0;
-return {ok:true,items:out,login,url:location.href,curPage:cur,lastPage:lastPg,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document),stats:statsOf(document)}})()"#;
+const notFound=/not found/i.test(document.title)||/page not found|^error/i.test(h1?h1.textContent.trim():'');
+return {ok:true,items:notFound?[]:out,notFound,login,url:location.href,curPage:cur,lastPage:lastPg,name:h1?h1.textContent.trim().slice(0,80):'',avatar:avaOf(document),stats:statsOf(document)}})()"#;
 
 /// Alle Seiten eines Uploaders einsammeln (für die Suche in seinen Videos): Folgeseiten parallel
 /// im eingeloggten Tab nachladen, höchstens 30 Seiten bzw. ~28 s.
