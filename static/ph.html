@@ -140,6 +140,7 @@
   .pill .i-on, .pill.on .i-off { display: none; }
   /* Modern Clean Custom Dropdown Menu */
   .cmenu { position: relative; display: inline-flex; }
+  .cmenu[hidden] { display: none; }
   .cmenu-btn { height: 38px; padding: 0 14px; border-radius: 19px; border: 1px solid var(--line); background: var(--surf); color: var(--tx); display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; cursor: pointer; transition: background .18s, border-color .18s, transform .12s; user-select: none; }
   .cmenu-btn:hover { background: var(--surf-2); border-color: rgba(255,255,255,.2); }
   .cmenu-btn:active { transform: scale(.98); }
@@ -917,6 +918,7 @@
   addEventListener('resize', () => { if (kind === 'shorts') shortsPos(); });
 
   function setKind(k, push = true) {
+    { const sm = $('#srcMenu'); if (sm) sm.hidden = !(k === 'home' || k === 'search'); }
     if (push && k !== 'user') syncUrl(k);
     if (kind === 'shorts' && k !== 'shorts') shortsPause();
     document.body.classList.toggle('sh', k === 'shorts');

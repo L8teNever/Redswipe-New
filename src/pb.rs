@@ -25,12 +25,13 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
         }
     };
 
-    let js = r#"(()=>{
+    let js = r#"(async()=>{
         if (!document.cookie.includes('is_age_ok')) {
             document.cookie = 'is_age_ok=1; path=/; max-age=31536000';
             const btn = document.querySelector('[class*="age-verification"] a, [class*="age-verification"] button');
             if (btn) btn.click();
         }
+        const extract = () => {
         const list = [];
         document.querySelectorAll('a[href*="/videos/"]').forEach(a => {
             const href = a.getAttribute('href');
@@ -65,7 +66,12 @@ pub async fn list(page: u32, q: Option<&str>) -> Result<Vec<Value>, browser::Bro
         for (const x of list) {
             if (!seen.has(x.key)) { seen.add(x.key); unique.push(x); }
         }
-        return { ok: true, items: unique };
+        return unique;
+        };
+        // Bot-Sperre (Rechenaufgabe) abwarten: so lange prüfen, bis die Kacheln da sind
+        let items = extract();
+        for (let i = 0; i < 40 && !items.length; i++) { await new Promise(r => setTimeout(r, 500)); items = extract(); }
+        return { ok: true, items, title: document.title };
     })()"#;
 
     let v = browser::eval_in_page(&url, js).await?;
