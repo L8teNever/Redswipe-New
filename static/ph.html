@@ -1617,13 +1617,15 @@
         else throw new Error('Dieser Browser kann den Stream nicht abspielen.');
       } else ttV.src = px(src.url);
       ttV.onerror = () => { if (my === ttTok) { ttRes.delete(k); ttMsg(s, 'Video lässt sich nicht abspielen.'); } };
-      ttV.play().catch(() => { if (my === ttTok && veil.hidden) ttPauseIc.hidden = false; });
+      // Ohne Tipp vorher erlaubt der Browser keinen Ton: dann stumm starten
+      ttV.play().catch(() => { if (my !== ttTok) return; ttV.muted = true; ttMuteSync(); ttV.play().catch(() => { if (my === ttTok && veil.hidden) ttPauseIc.hidden = false; }); });
       markWatched(k);
     } catch (e) { if (my === ttTok) ttMsg(s, e.message); }
     // Nächstes Video schon auflösen, damit Wischen schnell geht
     const n = ttFeed.children[i + 1]; if (n && my === ttTok) ttSrc(n.dataset.k).catch(() => {});
   }
   ttV.addEventListener('playing', () => { ttV.classList.add('on'); ttMsg(ttV.parentNode, ''); ttPauseIc.hidden = true; });
+  ttV.addEventListener('loadeddata', () => { ttV.classList.add('on'); ttMsg(ttV.parentNode, ''); });
   ttV.addEventListener('play', () => { if (!veil.hidden) ttV.pause(); });
   ttV.addEventListener('timeupdate', () => { if (!ttBar.classList.contains('drag') && ttV.duration) ttFill.style.width = (ttV.currentTime / ttV.duration * 100) + '%'; });
   function ttOpen(startKey) {
