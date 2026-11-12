@@ -275,6 +275,39 @@
   @media (max-width: 480px) { .tab:not(.on) .tl { display: none; } .pill { padding: 0 12px; } .acts .sp { display: none; } .upl { flex: 1 1 100%; } }
   @media (max-width: 640px) { .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px 10px; } .brand { display: none; } .tab { padding: 0 12px; } }
   /* Handy: kein System-Menü (Video herunterladen, Bild teilen …) beim Lang-Drücken */
+  /* Swipe-Ansicht (wie TikTok): Videos der aktuellen Liste untereinander */
+  #ttFab { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 15; height: 50px; padding: 0 18px 0 14px; border-radius: 25px; border: 0; background: var(--acc); color: var(--on-acc); font: inherit; font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.55); cursor: pointer; transition: transform .12s; }
+  #ttFab:active { transform: scale(.96); }
+  #ttFab[hidden] { display: none; }
+  #ttFab svg { width: 22px; height: 22px; fill: currentColor; }
+  #tt { position: fixed; inset: 0; z-index: 25; background: #000; color: #fff; }
+  #tt[hidden] { display: none; }
+  #ttFeed { position: absolute; inset: 0; overflow-y: scroll; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+  #ttFeed::-webkit-scrollbar { display: none; }
+  .tts { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; overflow: hidden; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+  .tts .ttp, .tts video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .tts .ttp { filter: brightness(.75); }
+  .tts video { opacity: 0; transition: opacity .2s; }
+  .tts video.on { opacity: 1; }
+  .tti { position: absolute; left: 14px; right: 14px; bottom: calc(30px + env(safe-area-inset-bottom)); text-shadow: 0 1px 6px rgba(0,0,0,.85); pointer-events: none; }
+  .tti .ttu { pointer-events: auto; color: #fff; font-weight: 700; font-size: 15px; text-decoration: none; }
+  .tti p { margin: 5px 0 0; font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tti small { color: rgba(255,255,255,.72); font-size: 12.5px; }
+  .ttm { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 80%; padding: 10px 16px; border-radius: 14px; background: rgba(0,0,0,.6); font-size: 14px; text-align: center; pointer-events: none; }
+  .ttm:empty { display: none; }
+  #ttTop { position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 10px 10px; background: linear-gradient(rgba(0,0,0,.45), transparent); pointer-events: none; }
+  #ttTop .sp { flex: 1; }
+  .ttb { pointer-events: auto; height: 42px; min-width: 42px; padding: 0 12px; border-radius: 21px; border: 0; background: rgba(0,0,0,.45); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: #fff; font: inherit; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+  .ttb svg { width: 22px; height: 22px; fill: currentColor; flex: none; }
+  #ttBar { position: absolute; left: 0; right: 0; bottom: env(safe-area-inset-bottom); height: 26px; z-index: 2; touch-action: none; cursor: pointer; }
+  #ttBar .tr { position: absolute; left: 0; right: 0; bottom: 8px; height: 3px; background: rgba(255,255,255,.25); transition: height .12s; }
+  #ttBar.drag .tr { height: 6px; }
+  #ttBar .fill { height: 100%; width: 0; background: var(--acc); }
+  #ttTime { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 2; padding: 6px 12px; border-radius: 12px; background: rgba(0,0,0,.6); font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; }
+  #ttTime[hidden], #tt2x[hidden], #ttPause[hidden] { display: none; }
+  #tt2x { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 2; padding: 6px 14px; border-radius: 16px; background: rgba(0,0,0,.55); font-weight: 700; pointer-events: none; }
+  #ttPause { position: absolute; left: 50%; top: 50%; width: 76px; height: 76px; margin: -38px 0 0 -38px; z-index: 1; border-radius: 50%; background: rgba(0,0,0,.45); display: grid; place-items: center; pointer-events: none; }
+  #ttPause svg { width: 44px; height: 44px; fill: #fff; }
   video, img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
 </style>
 </head>
@@ -367,6 +400,20 @@
   </div>
 </div>
 
+<button id="ttFab" type="button" hidden aria-label="Swipe-Ansicht"><svg viewBox="0 0 24 24"><path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14zm-7-11.5v7l5.5-3.5z"/></svg>Swipe</button>
+<div id="tt" hidden>
+  <div id="ttFeed"></div>
+  <div id="ttTop">
+    <button class="ttb" id="ttBack" type="button" aria-label="Zurück"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <span class="sp"></span>
+    <button class="ttb" id="ttMute" type="button" aria-label="Ton"></button>
+    <button class="ttb" id="ttOpen" type="button" aria-label="Im Player öffnen"><svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg><span>Zum Video</span></button>
+  </div>
+  <div id="tt2x" hidden>2× ▶▶</div>
+  <div id="ttPause" hidden><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  <div id="ttTime" hidden></div>
+  <div id="ttBar"><div class="tr"><div class="fill" id="ttFill"></div></div></div>
+</div>
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
@@ -1499,6 +1546,169 @@
   addEventListener('hashchange', route);
   addEventListener('popstate', () => { if (location.hash) return; const pk = pathKind(); if (kind !== pk) setKind(pk, false); });
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !peek.hidden) { closePeek(); return; } if (e.key === 'Escape' && !player.hidden) $('#pBack').click(); });
+
+  // ---------- Swipe-Ansicht (wie TikTok): Videos der aktuellen Liste nacheinander, in der Reihenfolge der Kacheln ----------
+  const tt = $('#tt'), ttFeed = $('#ttFeed'), ttFab = $('#ttFab'), ttBar = $('#ttBar'), ttFill = $('#ttFill'), ttTime = $('#ttTime'), tt2x = $('#tt2x'), ttPauseIc = $('#ttPause'), ttMute = $('#ttMute');
+  const ttV = document.createElement('video'); ttV.playsInline = true; ttV.loop = true; ttV.preload = 'auto';
+  let ttIdx = -1, ttTok = 0, ttHls = null, ttBlob = '', ttSaved = null, ttResume = false, ttObs = null, ttGridObs = null;
+  const ttRes = new Map(); // Video-Adresse je Video (Promise), damit das nächste schon vorab aufgelöst ist
+  const gridKeys = () => [...new Set([...grid.querySelectorAll('.card[data-k]')].map((c) => c.dataset.k).filter(Boolean))];
+  const listId = () => kind + '|' + upath + '|' + srcFilter;
+  function ttFabSync() { ttFab.hidden = !(player.hidden && tt.hidden && kind !== 'shorts' && !!grid.querySelector('.card[data-k]')); }
+  new MutationObserver(ttFabSync).observe(grid, { childList: true });
+  new MutationObserver(ttFabSync).observe(player, { attributes: true, attributeFilter: ['hidden'] });
+  ttFabSync();
+  function ttMuteSync() { ttMute.innerHTML = ttV.muted ? IC.mute : IC.vol; }
+  ttV.muted = store.get('ph-tt-muted', '0') === '1'; ttV.volume = +store.get('ph-vol', '1') || 1; ttMuteSync();
+  ttMute.onclick = () => { ttV.muted = !ttV.muted; store.set('ph-tt-muted', ttV.muted ? '1' : '0'); ttMuteSync(); };
+  function ttSlide(k) {
+    const it = itemByKey.get(k) || { key: k }, s = el('section', 'tts'); s.dataset.k = k;
+    const img = el('img', 'ttp'); img.alt = ''; img.draggable = false;
+    if (it.thumb) img.src = px(it.thumb);
+    if (offHas(k)) { img.onerror = () => { img.onerror = null; offThumb(k).then((u) => { if (u) img.src = u; }); }; if (!navigator.onLine || !it.thumb) offThumb(k).then((u) => { if (u) img.src = u; }); }
+    const info = el('div', 'tti');
+    if (it.uploader) {
+      const u = el(it.upath ? 'a' : 'span', 'ttu', it.uploader);
+      if (it.upath) { const h = 'u=' + it.upath + '&n=' + encodeURIComponent(it.uploader); u.href = '#' + h; u.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); ttHide(); location.hash = h; }); }
+      info.appendChild(u);
+    }
+    info.appendChild(el('p', '', it.title || ''));
+    const isPbK = isPb(k) || it.src === 'pb';
+    info.appendChild(el('small', '', [isPbK ? 'PimpBunny' : 'Pornhub', it.duration, it.views && it.views + ' Aufrufe'].filter(Boolean).join(' · ')));
+    s.append(img, el('div', 'ttm'), info);
+    return s;
+  }
+  const ttMsg = (s, t) => { const m = s && s.querySelector('.ttm'); if (m) m.textContent = t; };
+  function ttSrc(k) {
+    if (offHas(k)) return caches.open(OFFC).then((c) => c.match(offUrl(k, 'mp4'))).then((r) => r ? r.blob().then((b) => ({ blob: b })) : Promise.reject(new Error('Offline-Datei fehlt')));
+    if (!ttRes.has(k)) {
+      const p = fetch('/api/ph/video?key=' + encodeURIComponent(k)).then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+        if (!d.sources || !d.sources.length) throw new Error('Kein Stream gefunden');
+        // Für schnelles Wischen höchstens 720p
+        const want = Math.min(720, +store.get('ph-quality', '720') || 720);
+        return { url: (d.sources.find((x) => x.q <= want) || d.sources[d.sources.length - 1]).url };
+      });
+      p.catch(() => ttRes.delete(k));
+      ttRes.set(k, p); if (ttRes.size > 120) ttRes.delete(ttRes.keys().next().value);
+    }
+    return ttRes.get(k);
+  }
+  function ttStop() {
+    if (ttHls) { ttHls.destroy(); ttHls = null; }
+    ttV.onerror = null; ttV.pause(); ttV.removeAttribute('src'); ttV.load(); ttV.classList.remove('on'); ttV.playbackRate = 1;
+    if (ttBlob) { URL.revokeObjectURL(ttBlob); ttBlob = ''; }
+    ttFill.style.width = '0'; tt2x.hidden = true; ttPauseIc.hidden = true;
+  }
+  async function ttActivate(i) {
+    if (i === ttIdx || tt.hidden) return;
+    const s = ttFeed.children[i]; if (!s) return;
+    ttIdx = i; const my = ++ttTok, k = s.dataset.k;
+    ttStop(); s.insertBefore(ttV, s.children[1]); ttMsg(s, 'Lädt …');
+    if (i >= ttFeed.children.length - 4 && kind !== 'offline') more(); // rechtzeitig weitere Videos der Liste nachladen
+    try {
+      const src = await ttSrc(k); if (my !== ttTok) return;
+      if (src.blob) { ttBlob = URL.createObjectURL(src.blob); ttV.src = ttBlob; }
+      else if (/\.m3u8/i.test(src.url)) {
+        const Hls = await loadHls().catch(() => null); if (my !== ttTok) return;
+        if (Hls && Hls.isSupported()) { ttHls = new Hls({ maxBufferLength: 20 }); ttHls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal && my === ttTok) ttMsg(s, 'Stream-Fehler: ' + (d.details || d.type)); }); ttHls.loadSource(px(src.url)); ttHls.attachMedia(ttV); }
+        else if (ttV.canPlayType('application/vnd.apple.mpegurl')) ttV.src = px(src.url);
+        else throw new Error('Dieser Browser kann den Stream nicht abspielen.');
+      } else ttV.src = px(src.url);
+      ttV.onerror = () => { if (my === ttTok) { ttRes.delete(k); ttMsg(s, 'Video lässt sich nicht abspielen.'); } };
+      ttV.play().catch(() => { if (my === ttTok && veil.hidden) ttPauseIc.hidden = false; });
+      markWatched(k);
+    } catch (e) { if (my === ttTok) ttMsg(s, e.message); }
+    // Nächstes Video schon auflösen, damit Wischen schnell geht
+    const n = ttFeed.children[i + 1]; if (n && my === ttTok) ttSrc(n.dataset.k).catch(() => {});
+  }
+  ttV.addEventListener('playing', () => { ttV.classList.add('on'); ttMsg(ttV.parentNode, ''); ttPauseIc.hidden = true; });
+  ttV.addEventListener('play', () => { if (!veil.hidden) ttV.pause(); });
+  ttV.addEventListener('timeupdate', () => { if (!ttBar.classList.contains('drag') && ttV.duration) ttFill.style.width = (ttV.currentTime / ttV.duration * 100) + '%'; });
+  function ttOpen(startKey) {
+    const keys = gridKeys(); if (!keys.length) return;
+    let start = startKey ? keys.indexOf(startKey) : -1;
+    if (start < 0) { // erste Kachel, die gerade auf dem Bildschirm ist
+      const top = document.querySelector('header').offsetHeight + 20;
+      const c = [...grid.querySelectorAll('.card[data-k]')].find((x) => x.getBoundingClientRect().bottom > top);
+      start = Math.max(0, c ? keys.indexOf(c.dataset.k) : 0);
+    }
+    hovHide(); if (!peek.hidden) closePeek();
+    ttFeed.replaceChildren(...keys.map(ttSlide)); ttIdx = -1;
+    tt.hidden = false; document.body.style.overflow = 'hidden'; ttFabSync();
+    if (!(history.state && history.state.tt)) history.pushState({ tt: 1 }, '', location.href);
+    ttFeed.scrollTop = ttFeed.children[start].offsetTop;
+    ttObs = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) ttActivate([...ttFeed.children].indexOf(e.target)); }), { root: ttFeed, threshold: 0.6 });
+    [...ttFeed.children].forEach((s) => ttObs.observe(s));
+    // Neue Kacheln (Nachladen der Liste) hinten anhängen
+    ttGridObs = new MutationObserver(() => {
+      const have = new Set([...ttFeed.children].map((s) => s.dataset.k));
+      gridKeys().filter((k) => !have.has(k)).forEach((k) => { const s = ttSlide(k); ttFeed.appendChild(s); ttObs.observe(s); });
+    });
+    ttGridObs.observe(grid, { childList: true });
+    ttActivate(start);
+  }
+  function ttHide() {
+    if (tt.hidden) return;
+    const cur = ttFeed.children[ttIdx], k = cur && cur.dataset.k;
+    ttSaved = k ? { k, list: listId() } : null;
+    ttTok++; ttStop(); if (ttObs) ttObs.disconnect(); if (ttGridObs) ttGridObs.disconnect();
+    tt.hidden = true; ttFeed.replaceChildren(); ttIdx = -1;
+    if (player.hidden) document.body.style.overflow = '';
+    ttFabSync();
+    // In der Liste dorthin, wo man in der Swipe-Ansicht war
+    const c = k && grid.querySelector('.card[data-k="' + CSS.escape(k) + '"]'); if (c) c.scrollIntoView({ block: 'center' });
+  }
+  ttFab.onclick = () => ttOpen();
+  $('#ttBack').onclick = () => { if (history.state && history.state.tt) history.back(); else ttHide(); };
+  $('#ttOpen').onclick = () => { const s = ttFeed.children[ttIdx]; if (!s) return; const k = s.dataset.k; ttHide(); location.hash = 'v=' + k; };
+  // Zurück (auch die Zurück-Taste am Handy) schließt die Ansicht; vom Player zurück öffnet sie wieder an derselben Stelle
+  addEventListener('popstate', () => {
+    const st = history.state && history.state.tt;
+    if (!st) { ttHide(); return; }
+    if (tt.hidden && ttSaved && ttSaved.list === listId()) setTimeout(() => { if (tt.hidden && !/[#&]v=/.test(location.hash) && history.state && history.state.tt) ttOpen(ttSaved.k); }, 0);
+  });
+  // Gesten: Halten = 2×, kurzer Tipp = Pause/Weiter
+  let ttHoldT = 0, ttHolding = false, ttDown = null;
+  ttFeed.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('a,button')) return;
+    ttDown = { x: e.clientX, y: e.clientY, t: Date.now() };
+    ttHoldT = setTimeout(() => { ttHoldT = 0; ttHolding = true; ttV.playbackRate = 2; if (ttV.paused) ttV.play().catch(() => {}); tt2x.hidden = false; }, 380);
+  });
+  ttFeed.addEventListener('pointermove', (e) => { if (ttDown && ttHoldT && Math.hypot(e.clientX - ttDown.x, e.clientY - ttDown.y) > 10) { clearTimeout(ttHoldT); ttHoldT = 0; ttDown = null; } });
+  const ttEnd = (tap) => {
+    if (ttHoldT) { clearTimeout(ttHoldT); ttHoldT = 0; }
+    if (ttHolding) { ttHolding = false; ttV.playbackRate = 1; tt2x.hidden = true; }
+    else if (tap && ttDown) { if (ttV.paused) ttV.play().catch(() => {}); else { ttV.pause(); ttPauseIc.hidden = false; } }
+    ttDown = null;
+  };
+  ttFeed.addEventListener('pointerup', () => ttEnd(true));
+  ttFeed.addEventListener('pointercancel', () => ttEnd(false));
+  ttFeed.addEventListener('contextmenu', (e) => e.preventDefault());
+  // Leiste unten: ziehen zum Spulen
+  function ttSeek(e) {
+    const r = ttBar.getBoundingClientRect(), f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    ttFill.style.width = f * 100 + '%';
+    if (ttV.duration) { ttTime.textContent = tfmt(f * ttV.duration) + ' / ' + tfmt(ttV.duration); ttTime.hidden = false; }
+    return f;
+  }
+  ttBar.addEventListener('pointerdown', (e) => { if (!ttV.duration) return; ttBar.setPointerCapture(e.pointerId); ttBar.classList.add('drag'); ttSeek(e); });
+  ttBar.addEventListener('pointermove', (e) => { if (ttBar.classList.contains('drag')) ttSeek(e); });
+  const ttSeekEnd = (e) => { if (!ttBar.classList.contains('drag')) return; const f = ttSeek(e); ttBar.classList.remove('drag'); ttTime.hidden = true; if (ttV.duration) ttV.currentTime = Math.min(ttV.duration - 0.1, f * ttV.duration); };
+  ttBar.addEventListener('pointerup', ttSeekEnd);
+  ttBar.addEventListener('pointercancel', () => { ttBar.classList.remove('drag'); ttTime.hidden = true; });
+  addEventListener('keydown', (e) => {
+    if (tt.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); $('#ttBack').click(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const s = ttFeed.children[ttIdx + (e.key === 'ArrowDown' ? 1 : -1)]; if (s) s.scrollIntoView({ behavior: 'smooth' }); }
+    else if (e.key === ' ') { e.preventDefault(); if (ttV.paused) ttV.play().catch(() => {}); else { ttV.pause(); ttPauseIc.hidden = false; } }
+    else if (e.key === 'ArrowRight' && ttV.duration) ttV.currentTime = Math.min(ttV.duration - 0.1, ttV.currentTime + 10);
+    else if (e.key === 'ArrowLeft') ttV.currentTime = Math.max(0, ttV.currentTime - 10);
+  });
+  // Sichtschutz: beim Verlassen anhalten, beim Zurückkommen weiter
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && !tt.hidden) { ttResume = !ttV.paused; ttV.pause(); } });
+  veil.addEventListener('click', () => { if (!tt.hidden && ttResume) ttV.play().catch(() => {}); ttResume = false; });
 
   store.set('ph-kind', pathKind());
   if (!/[#&]u=/.test(location.hash)) setKind(!navigator.onLine && Object.keys(offMeta).some(offHas) ? 'offline' : pathKind(), false);
