@@ -373,7 +373,7 @@
   const grid = $('#grid'), foot = $('#foot'), form = $('form.search'), qIn = $('#q');
   const px = (u) => /^(data|blob):/.test(u || '') ? u : '/api/ph/media?u=' + encodeURIComponent(u);
   const isPb = (k) => String(k || '').startsWith('pb:');
-  const pbUser = () => upath.startsWith('/pb/'); // Creator-Seite bei PimpBunny (ohne Sortierung, Kategorien und Suche)
+  const pbUser = () => upath.startsWith('/pb/'); // Creator-Seite bei PimpBunny (ohne Kategorien und Suche)
   const siteName = () => pbUser() ? 'PimpBunny' : 'Pornhub'; // PimpBunny: kein Konto, also keine Likes/Favoriten/Abos
   const itemByKey = new Map(); // zuletzt gezeigte Kacheln (Bild, Dauer) für Player und Offline
   const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
@@ -831,7 +831,7 @@
     const base = [['views', 'Meiste Aufrufe'], ['top', 'Beste Bewertung'], ['long', 'Am längsten']];
     if (kind === 'home') return [['', 'Empfohlen'], ['new', 'Neueste'], ...base];
     if (kind === 'search') return [['', 'Relevanz'], ['new', 'Neueste'], ...base];
-    if (kind === 'user' && pbUser()) return [];
+    if (kind === 'user' && pbUser()) return [['', 'Neueste'], ['views', 'Meiste Aufrufe'], ['top', 'Beste Bewertung']]; // PimpBunny sortiert nicht nach Länge
     if (kind === 'user') return [['', 'Neueste'], ...(upath.startsWith('/channels/') ? base.slice(0, 2) : base)];
     return [];
   }

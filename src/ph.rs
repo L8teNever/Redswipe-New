@@ -313,7 +313,7 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
         if !crate::pb::valid_user_path(path) {
             return err(StatusCode::BAD_REQUEST, "Ungültiger Creator");
         }
-        return match crate::pb::user(path, page).await {
+        return match crate::pb::user(path, page, p.sort.as_deref()).await {
             Ok((items, info)) => {
                 let mut out = json!({ "items": &items, "page": page, "login": true });
                 // Hinter der letzten Seite liefert PimpBunny „Page not found“ als Überschrift

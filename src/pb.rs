@@ -45,12 +45,18 @@ pub fn valid_user_path(p: &str) -> bool {
 }
 
 /// Alle Videos eines Creators (Seite für Seite) samt Name, Bild und Anzahl.
-pub async fn user(path: &str, page: u32) -> Result<(Vec<Value>, Value), browser::BrowserError> {
+/// Sortierung wie in der App: leer = Neueste, `views` = meiste Aufrufe, `top` = beste Bewertung.
+pub async fn user(path: &str, page: u32, sort: Option<&str>) -> Result<(Vec<Value>, Value), browser::BrowserError> {
     if !valid_user_path(path) {
         return Err(browser::BrowserError::Failed("Ungültiger Creator".into()));
     }
     let site = path.trim_start_matches("/pb");
-    let url = if page <= 1 { format!("https://pimpbunny.com{site}/") } else { format!("https://pimpbunny.com{site}/{page}/") };
+    let by = match sort {
+        Some("views") => "?sort_by=video_viewed",
+        Some("top") => "?sort_by=rating",
+        _ => "",
+    };
+    let url = if page <= 1 { format!("https://pimpbunny.com{site}/{by}") } else { format!("https://pimpbunny.com{site}/{page}/{by}") };
     fetch(&url).await
 }
 
@@ -404,7 +410,7 @@ pub async fn subs_feed(page: u32) -> Result<Vec<Value>, browser::BrowserError> {
     for (n, path) in names {
         tasks.push(tokio::spawn(async move {
             if valid_user_path(&path) {
-                return user(&path, page).await.map(|(items, _)| items).unwrap_or_default();
+                return user(&path, page, None).await.map(|(items, _)| items).unwrap_or_default();
             }
             let items = list(page, Some(&n)).await.unwrap_or_default();
             let want = norm(&n);
