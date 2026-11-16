@@ -120,23 +120,48 @@ pub struct UploadQuery {
     duration: Option<f64>,
     w: Option<u32>,
     h: Option<u32>,
+    /// Bei Folge-Stücken: das Video, an das angehängt wird.
+    id: Option<String>,
+    /// Bisher angekommene Bytes (muss zur Datei auf der Platte passen).
+    offset: Option<u64>,
+    /// Letztes Stück: Video fertigstellen.
+    last: Option<u8>,
 }
 
-/// Video als Rohdaten im Body (kein Formular), damit auch große Dateien direkt auf die Platte gehen.
+/// Video in Stücken (je Anfrage Rohdaten im Body), damit auch Verbindungen mit Größenlimit
+/// (z. B. Cloudflare 100 MB) große Dateien schaffen.
 pub async fn upload(Query(q): Query<UploadQuery>, body: Body) -> Response {
-    let ext = q.ext.unwrap_or_default().trim().trim_start_matches('.').to_ascii_lowercase();
+    let ext = q.ext.clone().unwrap_or_default().trim().trim_start_matches('.').to_ascii_lowercase();
     let ext = if EXTS.contains(&ext.as_str()) { ext } else { "mp4".to_string() };
     let d = dir();
     if let Err(e) = tokio::fs::create_dir_all(&d).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("Ordner nicht anlegbar: {e}"));
     }
-    let id = new_id();
+    let (id, cont) = match q.id.as_deref().filter(|s| !s.is_empty()) {
+        Some(id) if valid_id(id) => (id.to_string(), true),
+        Some(_) => return err(StatusCode::BAD_REQUEST, "Ungültiges Video"),
+        None => (new_id(), false),
+    };
     let tmp = d.join(format!("{id}.part"));
-    let mut f = match tokio::fs::File::create(&tmp).await {
+    let mut size: u64 = if cont {
+        let have = tokio::fs::metadata(&tmp).await.map(|m| m.len()).unwrap_or(u64::MAX);
+        if have != q.offset.unwrap_or(0) {
+            return err(StatusCode::CONFLICT, "Upload-Stand passt nicht, bitte neu starten");
+        }
+        have
+    } else {
+        0
+    };
+    let opened = if cont {
+        tokio::fs::OpenOptions::new().append(true).open(&tmp).await
+    } else {
+        tokio::fs::File::create(&tmp).await
+    };
+    let mut f = match opened {
         Ok(f) => f,
         Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, format!("Datei nicht anlegbar: {e}")),
     };
-    let mut size: u64 = 0;
+    let last = q.last == Some(1) || !cont && q.last.is_none();
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
         let fail = match chunk {
@@ -166,6 +191,9 @@ pub async fn upload(Query(q): Query<UploadQuery>, body: Body) -> Response {
         return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     drop(f);
+    if !last {
+        return Json(json!({ "id": id, "size": size })).into_response();
+    }
     if let Err(e) = tokio::fs::rename(&tmp, d.join(format!("{id}.{ext}"))).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
