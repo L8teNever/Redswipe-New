@@ -141,7 +141,7 @@
   .mc img.on { opacity: 1; }
   .mc.fit img { object-fit: contain; }
   .mg.dyn { display: block; position: relative; }
-  .mg.dyn .mc { position: absolute; transition: left .6s, top .6s, width .6s, height .6s, opacity .8s; }
+  .mg.dyn .mc { position: absolute; background: transparent; transition: left .6s, top .6s, width .6s, height .6s, opacity .8s; }
 </style>
 </head>
 <body>
@@ -190,7 +190,7 @@
 <div id="mo" hidden>
   <div class="mt">
     <button class="ib" id="mX" type="button" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
-    <div class="chips" id="mN"></div><div class="chips" id="mT"></div>
+    <div class="chips" id="mN"></div><div class="chips" id="mS"></div><div class="chips" id="mT"></div>
     <button class="chip" id="mFit" type="button">Ganz</button><button class="chip" id="mP" type="button">Pause</button>
   </div>
   <div class="mg" id="mG"></div>
@@ -467,89 +467,162 @@
   let mN = [4, 6, 0].includes(+store.get('rd-mn', '4')) ? +store.get('rd-mn', '4') : 4, mSec = +store.get('rd-ms', '5') || 5, mFit = store.get('rd-mfit', '0') === '1';
   let mPaused = false, mTimer = 0, mUsed = new Set(), mItems = [], mLast = -1;
   const GAP = 3;
+  // Größe der Bilder im dynamischen Modus = Zielhöhe einer Reihe in px
+  let mSize = [160, 260, 400].includes(+store.get('rd-md', '260')) ? +store.get('rd-md', '260') : 260;
+  let mReady = [], mLoading = 0, mGen = 0, mFail = 0, mLock = false, mSkip = 0, mNeed = true, mStarted = false, mMoreP = false;
+  const mInfl = new Set();
+  const asp = (x) => Math.min(3, Math.max(0.35, x.a || 1));
   const mPool = () => posts.flatMap((p) => p.media.map((m, i) => ({ id: p.id + ':' + i, url: m.url, a: m.width && m.height ? m.width / m.height : 0 })));
-  function mPick() {
-    let c = mPool().filter((x) => !mUsed.has(x.id));
-    if (c.length < 8 && !done) more();
-    if (!c.length) { mUsed.clear(); mItems.forEach((x) => mUsed.add(x.id)); [...mG.querySelectorAll('img.on')].forEach((i) => mUsed.add(i.dataset.id)); c = mPool().filter((x) => !mUsed.has(x.id)); }
+  const mShownItems = () => (mN ? [...mG.children].map((c) => c._x).filter(Boolean) : mItems);
+  function mLockFor(ms = 900) { mLock = true; setTimeout(() => { mLock = false; }, ms); }
+
+  // Nächstes noch nicht gezeigtes Bild (nie doppelt, auch nicht über verschiedene Beiträge mit gleicher Adresse)
+  function mNext() {
+    let c = mPool().filter((x) => !mUsed.has(x.url));
+    if (c.length < 30 && !done && !mMoreP) { mMoreP = true; Promise.resolve(more()).finally(() => { mMoreP = false; mFill(); }); }
+    if (!c.length) {
+      mUsed = new Set([...mShownItems(), ...mReady].map((x) => x.url).concat([...mInfl]));
+      c = mPool().filter((x) => !mUsed.has(x.url));
+    }
     if (!c.length) return null;
-    const x = c[Math.floor(Math.random() * c.length)]; mUsed.add(x.id); return x;
+    const x = c[Math.floor(Math.random() * c.length)]; mUsed.add(x.url); return x;
   }
-  function mImg(cell, x) {
-    const im = el('img'); im.dataset.id = x.id; im.alt = ''; im.decoding = 'async';
-    im.onload = () => {
-      if (!x.a && im.naturalWidth) { x.a = im.naturalWidth / im.naturalHeight; if (!mN) dynLayout(); }
-      cell.querySelectorAll('img.on').forEach((o) => { o.classList.remove('on'); setTimeout(() => o.remove(), 900); }); requestAnimationFrame(() => im.classList.add('on'));
-    };
-    im.onerror = () => im.remove();
-    im.src = x.url; cell.append(im);
+  // Bilder im Hintergrund laden (bis zu 6 gleichzeitig), damit Wechsel sofort und mit bekannter Größe passieren
+  function mFill() {
+    if (mo.hidden) return; const gen = mGen;
+    const keep = mN ? mN + 3 : 14;
+    while (mLoading < 6 && mFail < 40 && (mNeed || mReady.length + mLoading < keep)) {
+      const x = mNext(); if (!x) break;
+      mLoading++; mInfl.add(x.url);
+      const im = new Image(); im.decoding = 'async';
+      im.onload = () => {
+        if (gen !== mGen) return; mLoading--; mInfl.delete(x.url);
+        if (im.naturalWidth) { x.a = im.naturalWidth / im.naturalHeight; x.img = im; mReady.push(x); mArrived(); } else mFail++;
+        mFill();
+      };
+      im.onerror = () => { if (gen !== mGen) return; mLoading--; mFail++; mInfl.delete(x.url); mFill(); };
+      im.src = x.url;
+    }
   }
-  function mSet(cell) { const x = mPick(); if (x) mImg(cell, x); }
+  const mTake = (i = Math.floor(Math.random() * mReady.length)) => mReady.splice(i, 1)[0];
+  function mArrived() {
+    if (mN) {
+      for (const c of [...mG.children]) if (!c._x && mReady.length) mPut(c, mTake());
+      mNeed = [...mG.children].some((c) => !c._x);
+    } else if (mNeed) {
+      if (!mStarted) { if (mReady.length >= 10) { mStarted = true; dynLayout(); } } else dynLayout();
+    }
+  }
+  // Fertig geladenes Bild in eine Kachel setzen, das alte blendet weich aus
+  function mPut(cell, x) {
+    const im = x.img; im.dataset.id = x.id; im.alt = ''; cell._x = x;
+    [...cell.querySelectorAll('img')].forEach((o) => { o.classList.remove('on'); setTimeout(() => o.remove(), 1000); });
+    cell.append(im); void im.offsetWidth; im.classList.add('on');
+  }
 
   // Dynamisch: Zeilen werden auf Bildschirmbreite gestreckt (Quer- und Hochformat gemischt, Format bleibt),
   // die Zeilenanzahl wird so gewählt, dass die Höhe möglichst genau passt.
-  function dynPlan(W, H) {
-    const asp = (x) => Math.min(3, Math.max(0.35, x.a || 1));
-    const r0 = Math.max(2, Math.round(H / 260)); let best = null;
+  function dynPlan(W, H, list) {
+    const r0 = Math.max(1, Math.round(H / mSize)); let best = null;
     for (const R of [r0 - 1, r0, r0 + 1].filter((r) => r >= 1)) {
       const T = (H - (R - 1) * GAP) / R, rows = []; let cur = [], sum = 0;
-      for (const x of mItems) {
+      for (const x of list) {
         cur.push(x); sum += asp(x);
         if (sum * T >= W - GAP * (cur.length - 1)) { rows.push({ its: cur, sum }); cur = []; sum = 0; if (rows.length === R) break; }
       }
+      const full = rows.length === R;
       if (cur.length && rows.length < R) rows.push({ its: cur, sum });
       for (const r of rows) r.h = (W - GAP * (r.its.length - 1)) / r.sum;
       const tot = rows.reduce((t, r) => t + r.h, 0) + GAP * (rows.length - 1), f = (H - GAP * (rows.length - 1)) / (tot - GAP * (rows.length - 1));
-      const sc = Math.abs(Math.log(f)) + (rows.length < R ? 1 : 0);
-      if (!best || sc < best.sc) best = { rows, f, sc };
+      const sc = Math.abs(Math.log(f)) + (full ? 0 : 1);
+      if (!best || sc < best.sc) best = { rows, f, sc, full };
     }
     return best;
   }
   function dynLayout() {
-    const W = mG.clientWidth, H = mG.clientHeight; if (!W || !H || !mItems.length) return;
-    const plan = dynPlan(W, H); if (!plan) return;
+    const W = mG.clientWidth, H = mG.clientHeight; if (!W || !H) return;
+    const list = mItems.concat(mReady); if (!list.length) return;
+    const plan = dynPlan(W, H, list); if (!plan) return;
     const used = new Set(); let y = 0;
-    plan.rows.forEach((r, ri) => {
+    plan.rows.forEach((r) => {
       const h = r.h * plan.f; let x = 0;
       r.its.forEach((it, i) => {
-        const w = i === r.its.length - 1 ? W - x : (W - GAP * (r.its.length - 1)) * (Math.min(3, Math.max(0.35, it.a || 1)) / r.sum);
+        const w = i === r.its.length - 1 ? W - x : (W - GAP * (r.its.length - 1)) * (asp(it) / r.sum);
+        const st = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px';
         let c = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]');
-        if (!c) { c = el('div', 'mc'); c.dataset.id = it.id; c.onclick = () => mReplace(it); mG.append(c); mImg(c, it); c.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px'; }
-        else c.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px';
+        if (!c) { c = el('div', 'mc'); c.dataset.id = it.id; c.onclick = () => dynTap(it); c.style.cssText = st; mG.append(c); mPut(c, it); }
+        else c.style.cssText = st;
         used.add(it.id); x += w + GAP;
       });
       y += h + GAP;
     });
-    plan.shown = used; mShown = used;
+    mItems = list.filter((it) => used.has(it.id)); mReady = list.filter((it) => !used.has(it.id));
+    mShown = used; mNeed = !plan.full;
     [...mG.children].forEach((c) => { if (!used.has(c.dataset.id)) { c.style.opacity = 0; setTimeout(() => { if (!mShown.has(c.dataset.id)) c.remove(); }, 900); } });
+    if (mNeed) mFill();
   }
   let mShown = new Set();
-  function mReplace(it) {
-    const i = mItems.indexOf(it); if (i < 0) return; const x = mPick(); if (!x) return;
-    mItems[i] = x;
-    const old = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]'); if (old) { old.style.opacity = 0; setTimeout(() => old.remove(), 900); }
-    dynLayout();
+  const dynDiff = (a, b) => Math.abs(Math.log(asp(a) / asp(b)));
+  // Passendes Ersatzbild: ein Bild, das fast dasselbe Seitenverhältnis hat wie das gezeigte, dann bleibt die Aufteilung gleich
+  function dynFind(tol) {
+    const cells = mItems.filter((it) => it.id !== mLast).sort(() => Math.random() - 0.5);
+    for (const it of cells) {
+      let bi = -1, bd = tol;
+      mReady.forEach((r, i) => { const d = dynDiff(r, it); if (d < bd) { bd = d; bi = i; } });
+      if (bi >= 0) return [it, bi];
+    }
+    return null;
+  }
+  function dynReplace(it, ri, relayout) {
+    const x = mTake(ri), k = mItems.indexOf(it); if (k < 0) { mReady.push(x); return; }
+    mItems[k] = x; mLast = x.id; mLockFor();
+    const old = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]');
+    if (relayout || !old) { dynLayout(); return; }
+    const c = el('div', 'mc'); c.dataset.id = x.id; c.onclick = () => dynTap(x); c.style.cssText = old.style.cssText; mG.append(c); mPut(c, x);
+    old.dataset.id = '~' + it.id; mShown.delete(it.id); mShown.add(x.id);
+    setTimeout(() => old.remove(), 1000);
+  }
+  function dynTap(it) {
+    if (!mReady.length) { mFill(); return; }
+    let bi = 0, bd = 9; mReady.forEach((r, i) => { const d = dynDiff(r, it); if (d < bd) { bd = d; bi = i; } });
+    dynReplace(it, bi, bd >= 0.22);
+    mFill();
   }
   function mBuild() {
-    mG.className = 'mg ' + (mN ? 'n' + mN : 'dyn'); mG.replaceChildren(); mUsed.clear(); mItems = []; mShown = new Set(); mLast = -1;
-    if (!mN) {
-      for (let i = 0; i < 60; i++) { const x = mPick(); if (!x) break; mItems.push(x); }
-      dynLayout(); return;
-    }
-    for (let i = 0; i < mN; i++) { const c = el('div', 'mc' + (mFit ? ' fit' : '')); c.onclick = () => mSet(c); mG.append(c); }
-    [...mG.children].forEach(mSet);
+    mGen++; mLoading = 0; mFail = 0; mSkip = 0; mReady = []; mInfl.clear(); mUsed.clear(); mItems = []; mShown = new Set(); mLast = -1; mNeed = true; mStarted = false; mLock = false;
+    mG.className = 'mg ' + (mN ? 'n' + mN : 'dyn'); mG.replaceChildren();
+    if (mN) for (let i = 0; i < mN; i++) {
+      const c = el('div', 'mc' + (mFit ? ' fit' : ''));
+      c.onclick = () => { if (!mReady.length) { mFill(); return; } mPut(c, mTake()); mLockFor(); mFill(); };
+      mG.append(c);
+    } else { const g = mGen; setTimeout(() => { if (g === mGen && !mStarted && mReady.length) { mStarted = true; dynLayout(); } }, 1500); }
+    mFill();
   }
   function mTick() {
     clearInterval(mTimer);
-    // Alle x Sekunden wechselt genau ein Bild (zufällig, nie zweimal dieselbe Stelle hintereinander)
+    // Alle x Sekunden wechselt genau ein Bild; das nächste erst, wenn das vorige sauber eingeblendet ist
     mTimer = setInterval(() => {
-      if (mPaused || document.hidden) return;
-      if (!mN) { const vis = mItems.filter((x) => mShown.has(x.id)); if (!vis.length) return; let it; do { it = vis[Math.floor(Math.random() * vis.length)]; } while (vis.length > 1 && it.id === mLast); mLast = it.id; mReplace(it); return; }
-      let i; do { i = Math.floor(Math.random() * mG.children.length); } while (mG.children.length > 1 && i === mLast); mLast = i; mSet(mG.children[i]);
+      if (mPaused || document.hidden || mLock) return;
+      if (!mN) {
+        if (!mItems.length) { mFill(); return; }
+        const m = dynFind(0.22);
+        if (m) { mSkip = 0; dynReplace(m[0], m[1], false); }
+        else if (++mSkip >= 3 && mReady.length) {
+          const it = mItems.filter((x) => x.id !== mLast)[0] || mItems[0]; let bi = 0, bd = 9;
+          mReady.forEach((r, i) => { const d = dynDiff(r, it); if (d < bd) { bd = d; bi = i; } });
+          mSkip = 0; dynReplace(it, bi, true);
+        }
+        mFill(); return;
+      }
+      const cells = [...mG.children]; if (!cells.length) return;
+      if (!mReady.length) { mFill(); return; }
+      let i; do { i = Math.floor(Math.random() * cells.length); } while (cells.length > 1 && i === mLast);
+      mLast = i; mPut(cells[i], mTake()); mLockFor(); mFill();
     }, mSec * 1000);
   }
   function mUi() {
     $('#mN').replaceChildren(...[[4, '4 Felder'], [6, '6 Felder'], [0, 'Dynamisch']].map(([n, l]) => { const b = el('button', 'chip' + (mN === n ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { mN = n; store.set('rd-mn', n); mUi(); mBuild(); mTick(); }; return b; }));
+    $('#mS').hidden = !!mN; $('#mS').replaceChildren(...[[160, 'Klein'], [260, 'Mittel'], [400, 'Groß']].map(([n, l]) => { const b = el('button', 'chip' + (mSize === n ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { mSize = n; store.set('rd-md', n); mUi(); dynLayout(); }; return b; }));
     $('#mT').replaceChildren(...[3, 5, 10, 20].map((n) => { const b = el('button', 'chip' + (mSec === n ? ' on' : ''), n + ' s'); b.type = 'button'; b.onclick = () => { mSec = n; store.set('rd-ms', n); mUi(); mTick(); }; return b; }));
     $('#mFit').hidden = !mN; $('#mFit').classList.toggle('on', mFit); $('#mFit').textContent = mFit ? 'Ganz' : 'Füllen'; $('#mP').textContent = mPaused ? 'Weiter' : 'Pause'; $('#mP').classList.toggle('on', mPaused);
   }
@@ -561,7 +634,7 @@
   }
   addEventListener('resize', () => { if (!mo.hidden && !mN) dynLayout(); });
   function mClose(back = true) {
-    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; mG.replaceChildren(); mItems = []; document.body.style.overflow = '';
+    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; mGen++; mReady = []; mG.replaceChildren(); mItems = []; document.body.style.overflow = '';
     if (back && history.state && history.state.m) history.back();
   }
   $('#mosBtn').onclick = mOpen; $('#mX').onclick = () => mClose();
