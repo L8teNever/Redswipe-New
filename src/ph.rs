@@ -55,7 +55,9 @@ pub struct MediaQuery {
 }
 
 fn valid_key(s: &str) -> bool {
-    if let Some(rest) = s.strip_prefix("pb:") {
+    if let Some(rest) = s.strip_prefix("my:") {
+        crate::my::valid_id(rest)
+    } else if let Some(rest) = s.strip_prefix("pb:") {
         !rest.is_empty() && rest.len() <= 120 && rest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     } else {
         !s.is_empty() && s.len() <= 40 && s.chars().all(|c| c.is_ascii_alphanumeric())
@@ -474,6 +476,9 @@ pub async fn video(Query(p): Query<VideoQuery>) -> Response {
     let Some(key) = p.key.filter(|k| valid_key(k)) else {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
     };
+    if let Some(id) = key.strip_prefix("my:") {
+        return crate::my::video(id).await;
+    }
     if let Some(pb_key) = key.strip_prefix("pb:") {
         return match crate::pb::video(pb_key).await {
             Ok(v) => Json(v).into_response(),
@@ -607,6 +612,9 @@ pub async fn state(Query(p): Query<VideoQuery>) -> Response {
     let Some(key) = p.key.filter(|k| valid_key(k)) else {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
     };
+    if key.starts_with("my:") {
+        return Json(json!({})).into_response();
+    }
     if key.starts_with("pb:") {
         return match crate::pb::state(&key, None) {
             Ok(v) => Json(v).into_response(),
@@ -620,6 +628,9 @@ pub async fn state(Query(p): Query<VideoQuery>) -> Response {
 pub async fn act(Json(b): Json<ActBody>) -> Response {
     if !valid_key(&b.key) || !matches!(b.action.as_str(), "up" | "down" | "fav" | "sub") {
         return err(StatusCode::BAD_REQUEST, "Ungültige Aktion");
+    }
+    if b.key.starts_with("my:") {
+        return err(StatusCode::BAD_REQUEST, "Bei eigenen Videos gibt es keine Likes oder Abos.");
     }
     if b.key.starts_with("pb:") {
         if b.action == "down" {

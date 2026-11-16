@@ -20,11 +20,13 @@ mod actions;
 mod browser;
 mod heat;
 mod login;
+mod my;
 pub mod nipples;
 mod optimize;
 mod pb;
 mod ph;
 mod pool;
+mod rd;
 mod redgifs;
 mod scan;
 mod taste;
@@ -42,6 +44,7 @@ const ALLOWED_HOSTS: &[&str] = &[
     "external-preview.redd.it",
     "v.redd.it",
     "i.imgur.com",
+    "styles.redditmedia.com",
     "media.redgifs.com",
 ];
 
@@ -140,9 +143,13 @@ async fn main() {
         .route_service("/favoriten", no_cache(&ph_page))
         .route_service("/suche", no_cache(&ph_page))
         .route_service("/offline", no_cache(&ph_page))
+        .route_service("/meine", no_cache(&ph_page))
         .route_service("/redswipe", no_cache(&index))
+        .route_service("/reddit", no_cache(&format!("{static_dir}/reddit.html")))
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/feed", get(feed))
+        .route("/api/rd/feed", get(rd::feed))
+        .route("/api/rd/subs", get(rd::subs))
         .route("/api/media", get(media))
         .route("/api/opt", get(optimize::handler))
         .route("/api/scan", get(scan::handler))
@@ -171,6 +178,12 @@ async fn main() {
         .route("/api/ph/people", get(ph::people))
         .route("/api/ph/cats", get(ph::cats))
         .route("/api/ph/act", post(ph::act).layer(DefaultBodyLimit::max(256 * 1024)))
+        .route("/api/my/list", get(my::list))
+        .route("/api/my/upload", post(my::upload).layer(DefaultBodyLimit::disable()))
+        .route("/api/my/thumb", post(my::thumb).layer(DefaultBodyLimit::max(4 * 1024 * 1024)))
+        .route("/api/my/edit", post(my::edit).layer(DefaultBodyLimit::max(4 * 1024)))
+        .route("/api/my/video", axum::routing::delete(my::delete))
+        .route("/api/my/file", get(my::file))
         .route(
             "/api/login",
             get(login::status).post(login::save).delete(login::remove).layer(DefaultBodyLimit::max(16 * 1024)),

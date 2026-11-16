@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121011">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Redswipe · Reddit</title>
+<style>
+  :root { --bg: #0f0d0e; --surf: #1a1617; --surf-2: #242021; --surf-3: #2f2a2b; --line: rgba(255,255,255,.09); --tx: #f4efef; --tx-2: rgba(244,239,239,.64);
+    --acc: #ff9900; --acc-soft: rgba(255,153,0,.15); --on-acc: #1a1100; --bad: #ef5350; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--tx); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input { font: inherit; color: inherit; }
+  a { color: inherit; text-decoration: none; }
+  svg { width: 22px; height: 22px; fill: currentColor; display: block; }
+  [hidden] { display: none !important; }
+  img { -webkit-touch-callout: none; -webkit-user-drag: none; }
+
+  header { position: sticky; top: 0; z-index: 10; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: rgba(15,13,14,.88);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--line); }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .ib { width: 42px; height: 42px; border-radius: 21px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; flex: none; }
+  .ib:hover { background: rgba(255,255,255,.08); }
+  .ib:active { transform: scale(.92); }
+  .brand { font-weight: 800; font-size: 16.5px; white-space: nowrap; }
+  .brand b { background: var(--acc); color: var(--on-acc); border-radius: 6px; padding: 1px 6px; margin-left: 2px; }
+  .brand small { color: var(--tx-2); font-weight: 600; margin-left: 6px; }
+  .sbox { position: relative; flex: 1; min-width: 0; }
+  .sbox input { width: 100%; height: 42px; border-radius: 21px; border: 1px solid var(--line); background: var(--surf); padding: 0 16px 0 44px; outline: none; }
+  .sbox input:focus { border-color: var(--acc); }
+  .sbox > svg { position: absolute; left: 12px; top: 10px; width: 22px; height: 22px; color: var(--tx-2); pointer-events: none; }
+  #sug { position: absolute; left: 0; right: 0; top: 48px; background: var(--surf-2); border: 1px solid var(--line); border-radius: 16px; max-height: min(70vh, 520px); overflow: auto;
+    box-shadow: 0 12px 40px rgba(0,0,0,.55); padding: 6px; z-index: 20; }
+  .sg { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: transparent; padding: 8px 10px; border-radius: 12px; cursor: pointer; text-align: left; }
+  .sg:hover, .sg:focus-visible { background: rgba(255,255,255,.08); outline: none; }
+  .sg .ava { width: 36px; height: 36px; border-radius: 50%; background: var(--surf-3); flex: none; object-fit: cover; display: grid; place-items: center; font-weight: 800; color: var(--acc); overflow: hidden; }
+  .sg .ava img { width: 100%; height: 100%; object-fit: cover; }
+  .sg .tx { min-width: 0; flex: 1; }
+  .sg b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg small { color: var(--tx-2); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { background: var(--bad); color: #fff; border-radius: 5px; font-size: 10.5px; font-weight: 800; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+
+  .bar { display: flex; gap: 8px; align-items: center; padding: 10px 12px 0; flex-wrap: wrap; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid var(--line); background: var(--surf); cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--tx-2); white-space: nowrap; flex: none; }
+  .chip.on { background: var(--acc); color: var(--on-acc); border-color: transparent; }
+  .chip.cur { background: var(--surf-2); color: var(--tx); display: flex; align-items: center; gap: 8px; }
+  .chip.cur svg { width: 16px; height: 16px; }
+  .sp { flex: 1; }
+  .go { height: 38px; border-radius: 19px; border: 0; background: var(--acc); color: var(--on-acc); font-weight: 800; padding: 0 16px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .go svg { width: 20px; height: 20px; }
+
+  main { padding: 10px 12px calc(40px + env(safe-area-inset-bottom)); }
+  h3 { margin: 18px 4px 8px; font-size: 14px; color: var(--tx-2); font-weight: 700; letter-spacing: .3px; }
+  .subs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .sub { display: flex; align-items: center; gap: 10px; background: var(--surf); border: 1px solid var(--line); border-radius: 14px; padding: 10px; cursor: pointer; min-width: 0; }
+  .sub:hover { background: var(--surf-2); }
+  .sub .ava { width: 38px; height: 38px; border-radius: 50%; background: var(--surf-3); flex: none; display: grid; place-items: center; font-weight: 800; color: var(--acc); overflow: hidden; }
+  .sub .ava img { width: 100%; height: 100%; object-fit: cover; }
+  .sub .tx { min-width: 0; }
+  .sub b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .sub small { color: var(--tx-2); font-size: 12px; }
+
+  #grid { columns: 2; column-gap: 8px; }
+  @media (min-width: 700px) { #grid { columns: 3; } }
+  @media (min-width: 1000px) { #grid { columns: 4; } }
+  @media (min-width: 1400px) { #grid { columns: 5; } }
+  .tile { break-inside: avoid; margin: 0 0 8px; position: relative; border-radius: 12px; overflow: hidden; background: var(--surf); cursor: pointer; display: block; }
+  .tile img { width: 100%; height: auto; display: block; min-height: 90px; background: var(--surf-2); }
+  .tile .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 8px 6px; font-size: 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); pointer-events: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .gal { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.65); border-radius: 8px; font-size: 12px; font-weight: 700; padding: 2px 7px; }
+  .tile .nsfw { position: absolute; top: 6px; left: 6px; }
+  .msg { text-align: center; color: var(--tx-2); padding: 40px 16px; }
+  .msg button { margin-top: 12px; }
+  .spin { width: 28px; height: 28px; border: 3px solid var(--surf-3); border-top-color: var(--acc); border-radius: 50%; animation: sp .8s linear infinite; margin: 24px auto; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  #sent { height: 1px; }
+
+  /* Swipe-Ansicht */
+  #vw { position: fixed; inset: 0; z-index: 50; background: #000; }
+  #vs { position: absolute; inset: 0; overflow-y: auto; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+  #vs::-webkit-scrollbar { display: none; }
+  .sl { height: 100vh; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; position: relative; background: #000; }
+  .gl { position: absolute; inset: 0; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .gl::-webkit-scrollbar { display: none; }
+  .gl .im { flex: none; width: 100%; height: 100%; scroll-snap-align: center; display: grid; place-items: center; }
+  .gl img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-select: none; }
+  .vt { position: absolute; left: 0; right: 0; top: 0; z-index: 3; display: flex; align-items: center; gap: 6px; padding: calc(8px + env(safe-area-inset-top)) 10px 28px;
+    background: linear-gradient(rgba(0,0,0,.7), transparent); pointer-events: none; }
+  .vt > * { pointer-events: auto; }
+  .vt .ib { background: rgba(0,0,0,.45); }
+  .vt .ti { flex: 1; min-width: 0; font-weight: 700; font-size: 13.5px; text-shadow: 0 1px 4px #000; }
+  .vt .ti small { display: block; font-weight: 500; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vb { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 34px 14px calc(14px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0,0,0,.78)); pointer-events: none; }
+  .vb .t { font-weight: 600; text-shadow: 0 1px 4px #000; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .vb .m { font-size: 12.5px; opacity: .8; margin-top: 2px; }
+  .dots { position: absolute; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 5px; z-index: 3; pointer-events: none; }
+  .dots i { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.4); }
+  .dots i.on { background: #fff; }
+  #vHint { position: absolute; z-index: 4; left: 50%; bottom: 90px; transform: translateX(-50%); background: rgba(0,0,0,.7); border-radius: 18px; padding: 6px 14px; font-size: 13px; pointer-events: none; transition: opacity .5s; }
+  .nav { position: absolute; z-index: 4; right: 10px; top: 50%; display: none; flex-direction: column; gap: 8px; transform: translateY(-50%); }
+  .nav .ib { background: rgba(0,0,0,.5); }
+  @media (hover: hover) and (pointer: fine) { .nav { display: flex; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <a class="ib" href="/" aria-label="Zurück zu Pornhub" title="Zurück"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></a>
+    <span class="brand">Red<b>swipe</b><small>Reddit</small></span>
+    <div class="sbox">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      <input id="q" type="search" placeholder="Subreddit oder Bilder suchen …" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div id="sug" hidden></div>
+    </div>
+  </div>
+</header>
+
+<div class="bar" id="bar" hidden>
+  <button class="chip cur" id="cur" type="button" title="Quelle ändern"><span id="curT"></span><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+  <div class="chips" id="sorts"></div>
+  <div class="chips" id="times" hidden></div>
+  <span class="sp"></span>
+  <button class="go" id="swipeBtn" type="button"><svg viewBox="0 0 24 24"><path d="M17 1.01 7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>Swipen</button>
+</div>
+
+<main>
+  <div id="home">
+    <h3 id="favH" hidden>GEMERKT</h3><div class="subs" id="favs"></div>
+    <h3>BELIEBTE SUBREDDITS</h3><div class="subs" id="pop"></div>
+  </div>
+  <div id="grid" hidden></div>
+  <div id="state"></div>
+  <div id="sent"></div>
+</main>
+
+<div id="vw" hidden>
+  <div id="vs"></div>
+  <div class="nav"><button class="ib" id="vUp" type="button" aria-label="Zurück"><svg viewBox="0 0 24 24"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></button><button class="ib" id="vDn" type="button" aria-label="Weiter"><svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg></button></div>
+  <div id="vHint">Hoch und runter wischen · bei Galerien seitwärts</div>
+</div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
+  const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+  const fmtN = (n) => !n ? '' : n >= 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + ' Mio.' : n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + 'K' : String(n);
+  const SORTS = [['hot', 'Hot'], ['new', 'Neu'], ['top', 'Top'], ['rising', 'Rising']];
+  const TIMES = [['hour', 'Stunde'], ['day', 'Tag'], ['week', 'Woche'], ['month', 'Monat'], ['year', 'Jahr'], ['all', 'Alle']];
+
+  // Aktuelle Quelle: sub (leer = Startseite mit Auswahl), text (Suche nach Beiträgen)
+  let sub = '', text = '', sort = store.get('rd-sort', 'hot'), t = store.get('rd-t', 'day');
+  let posts = [], after = null, busy = false, done = false, tok = 0;
+  const seen = new Set();
+  const favs = () => { try { return JSON.parse(store.get('rd-favs', '[]')) || []; } catch { return []; } };
+  const home = $('#home'), grid = $('#grid'), stateEl = $('#state');
+
+  async function api(path) {
+    const r = await fetch(path);
+    let j = null; try { j = await r.json(); } catch {}
+    if (!r.ok) throw new Error((j && j.error) || ('Fehler ' + r.status));
+    return j;
+  }
+
+  // ---------- Subreddit-Karten ----------
+  function avaOf(name, icon) {
+    const a = el('div', 'ava');
+    if (icon) { const i = el('img'); i.src = icon; i.alt = ''; i.loading = 'lazy'; i.onerror = () => { i.remove(); a.textContent = name[0].toUpperCase(); }; a.append(i); }
+    else a.textContent = name[0].toUpperCase();
+    return a;
+  }
+  function subCard(s) {
+    const c = el('button', 'sub'); c.type = 'button';
+    const tx = el('div', 'tx'), b = el('b', '', 'r/' + s.name);
+    if (s.nsfw) b.append(el('span', 'tag', '18+'));
+    tx.append(b, el('small', '', s.subs ? fmtN(s.subs) + ' Mitglieder' : ''));
+    c.append(avaOf(s.name, s.icon), tx);
+    c.onclick = () => openSub(s.name, '', s);
+    return c;
+  }
+  function renderFavs() {
+    const f = favs();
+    $('#favH').hidden = !f.length;
+    $('#favs').replaceChildren(...f.map(subCard));
+  }
+  async function loadPop() {
+    try { const j = await api('/api/rd/subs'); $('#pop').replaceChildren(...j.subs.map(subCard)); }
+    catch (e) { $('#pop').replaceChildren(el('div', 'msg', e.message)); }
+  }
+
+  // ---------- Suche mit Vorschlägen ----------
+  const q = $('#q'), sug = $('#sug');
+  let sugT = 0, sugTok = 0;
+  q.addEventListener('input', () => { clearTimeout(sugT); const v = q.value.trim(); if (!v) { sug.hidden = true; return; } sugT = setTimeout(() => suggest(v), 250); });
+  q.addEventListener('focus', () => { if (q.value.trim() && sug.childElementCount) sug.hidden = false; });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.sbox')) sug.hidden = true; });
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const v = q.value.trim(); if (v) { sug.hidden = true; q.blur(); searchPosts(v); } } });
+  function sgRow(av, title, small, fn) {
+    const b = el('button', 'sg'); b.type = 'button';
+    const tx = el('div', 'tx'); const bb = el('b'); bb.append(title); tx.append(bb, el('small', '', small));
+    b.append(av, tx); b.onclick = () => { sug.hidden = true; q.blur(); fn(); }; return b;
+  }
+  function searchRow(v) {
+    const ic = el('div', 'ava'); ic.innerHTML = '<svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
+    return sgRow(ic, 'Bilder suchen: ' + v, sub ? 'in r/' + sub : 'auf ganz Reddit', () => searchPosts(v));
+  }
+  async function suggest(v) {
+    const my = ++sugTok;
+    sug.replaceChildren(searchRow(v)); sug.hidden = false;
+    try {
+      const j = await api('/api/rd/subs?q=' + encodeURIComponent(v.replace(/^\/?r\//i, '')));
+      if (my !== sugTok) return;
+      sug.replaceChildren(searchRow(v), ...j.subs.map((s) => {
+        const tt = document.createDocumentFragment(); tt.append('r/' + s.name); if (s.nsfw) tt.append(el('span', 'tag', '18+'));
+        return sgRow(avaOf(s.name, s.icon), tt, (s.subs ? fmtN(s.subs) + ' Mitglieder · ' : '') + (s.title || ''), () => openSub(s.name, '', s));
+      }));
+    } catch {}
+  }
+
+  // ---------- Quelle öffnen ----------
+  function openSub(name, txt, info, push = true) {
+    sub = name || ''; text = txt || '';
+    if (info && sub) { const f = favs(); const i = f.findIndex((x) => x.name.toLowerCase() === sub.toLowerCase()); if (i >= 0) { f[i] = { ...f[i], ...info }; store.set('rd-favs', JSON.stringify(f)); } }
+    q.value = '';
+    if (push) history.pushState(null, '', urlFor());
+    show();
+  }
+  function searchPosts(v) { openSub(sub, v); }
+  function urlFor() { const p = new URLSearchParams(); if (sub) p.set('r', sub); if (text) p.set('q', text); const s = p.toString(); return '/reddit' + (s ? '?' + s : ''); }
+
+  function show() {
+    const browsing = !!(sub || text);
+    home.hidden = browsing; grid.hidden = !browsing; $('#bar').hidden = !browsing;
+    if (!browsing) { document.title = 'Redswipe · Reddit'; tok++; stateEl.replaceChildren(); renderFavs(); return; }
+    $('#curT').textContent = (text ? '„' + text + '“ ' : '') + (sub ? 'in r/' + sub : 'auf Reddit');
+    document.title = (sub ? 'r/' + sub : text) + ' · Reddit';
+    renderChips();
+    reload();
+  }
+  $('#cur').onclick = () => { if (text && sub) openSub(sub, ''); else openSub('', ''); };
+  addEventListener('popstate', () => { if (!$('#vw').hidden) { closeV(false); return; } fromUrl(); });
+
+  function renderChips() {
+    const s = $('#sorts'); s.replaceChildren();
+    for (const [k, l] of SORTS) { const b = el('button', 'chip' + (sort === k ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { sort = k; store.set('rd-sort', k); renderChips(); reload(); }; s.append(b); }
+    const tm = $('#times'); tm.hidden = sort !== 'top'; tm.replaceChildren();
+    for (const [k, l] of TIMES) { const b = el('button', 'chip' + (t === k ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { t = k; store.set('rd-t', k); renderChips(); reload(); }; tm.append(b); }
+    const f = favs().some((x) => sub && x.name.toLowerCase() === sub.toLowerCase());
+    let fb = $('#favBtn');
+    if (!fb) { fb = el('button', 'chip'); fb.id = 'favBtn'; fb.type = 'button'; $('#bar').insertBefore(fb, $('.sp')); fb.onclick = toggleFav; }
+    fb.hidden = !sub || sub.includes('+'); fb.textContent = f ? '★ Gemerkt' : '☆ Merken'; fb.classList.toggle('on', f);
+  }
+  function toggleFav() {
+    let f = favs(); const i = f.findIndex((x) => x.name.toLowerCase() === sub.toLowerCase());
+    if (i >= 0) f.splice(i, 1); else f.unshift({ name: sub, nsfw: false, subs: 0, icon: '' });
+    store.set('rd-favs', JSON.stringify(f)); renderChips();
+  }
+
+  // ---------- Bilder laden ----------
+  function reload() { tok++; posts = []; after = null; busy = false; done = false; seen.clear(); grid.replaceChildren(); stateEl.replaceChildren(); scrollTo(0, 0); more(); }
+  async function more() {
+    if (busy || done) return; busy = true; const my = tok;
+    stateEl.replaceChildren(el('div', 'spin'));
+    try {
+      const p = new URLSearchParams({ sub, q: text, sort, t }); if (after) p.set('after', after);
+      const j = await api('/api/rd/feed?' + p);
+      if (my !== tok) return;
+      const fresh = j.posts.filter((x) => !seen.has(x.id)); fresh.forEach((x) => seen.add(x.id));
+      after = j.after; if (!after) done = true;
+      posts.push(...fresh); fresh.forEach(tile); if (!vw.hidden) vAppend(fresh);
+      stateEl.replaceChildren();
+      if (!posts.length) stateEl.replaceChildren(el('div', 'msg', done ? 'Keine Bilder gefunden.' : 'Hier gab es nur Videos oder Text.'));
+      else if (done) stateEl.replaceChildren(el('div', 'msg', 'Das war alles.'));
+    } catch (e) {
+      if (my !== tok) return;
+      const m = el('div', 'msg', e.message); const b = el('button', 'go', 'Nochmal versuchen'); b.onclick = () => { busy = false; more(); }; m.append(el('br'), b);
+      stateEl.replaceChildren(m); busy = false; return;
+    }
+    busy = false;
+    if (!done && innerHeight + scrollY > document.body.scrollHeight - 400) more();
+  }
+  new IntersectionObserver((e) => { if (e[0].isIntersecting && !grid.hidden) more(); }, { rootMargin: '900px' }).observe($('#sent'));
+
+  function tile(p) {
+    const a = el('a', 'tile'); a.href = p.permalink; a.dataset.i = posts.indexOf(p);
+    const im = el('img'); im.src = p.media[0].url; im.alt = p.title; im.loading = 'lazy'; im.decoding = 'async';
+    if (p.media[0].width && p.media[0].height) im.style.aspectRatio = p.media[0].width + '/' + p.media[0].height;
+    a.append(im, el('div', 'cap', p.title));
+    if (p.media.length > 1) a.append(el('div', 'gal', '▤ ' + p.media.length));
+    if (p.nsfw) { const n = el('span', 'tag nsfw', '18+'); a.append(n); }
+    a.onclick = (e) => { if (e.button || e.ctrlKey || e.metaKey) return; e.preventDefault(); openV(posts.indexOf(p)); };
+    grid.append(a);
+  }
+  $('#swipeBtn').onclick = () => { if (posts.length) openV(0); };
+
+  // ---------- Swipe-Ansicht ----------
+  const vw = $('#vw'), vs = $('#vs');
+  function slide(p) {
+    const s = el('section', 'sl'); s.dataset.id = p.id;
+    const gl = el('div', 'gl');
+    p.media.forEach((m, i) => { const w = el('div', 'im'); const im = el('img'); im.alt = p.title; im.decoding = 'async'; im.draggable = false; im.dataset.src = m.url; w.append(im); gl.append(w); });
+    const dots = el('div', 'dots'); if (p.media.length > 1) { p.media.forEach((_, i) => dots.append(el('i', i ? '' : 'on'))); gl.addEventListener('scroll', () => { const k = Math.round(gl.scrollLeft / gl.clientWidth); [...dots.children].forEach((d, j) => d.classList.toggle('on', j === k)); }, { passive: true }); }
+    const top = el('div', 'vt');
+    const x = el('button', 'ib'); x.type = 'button'; x.setAttribute('aria-label', 'Schließen'); x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>'; x.onclick = () => closeV();
+    const ti = el('div', 'ti', 'r/' + p.subreddit); ti.append(el('small', '', 'u/' + p.author + ' · ▲ ' + fmtN(p.score)));
+    const op = el('a', 'ib'); op.href = p.permalink; op.target = '_blank'; op.rel = 'noopener'; op.setAttribute('aria-label', 'Auf Reddit öffnen'); op.innerHTML = '<svg viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
+    const go = el('button', 'ib'); go.type = 'button'; go.setAttribute('aria-label', 'Dieses Subreddit öffnen'); go.innerHTML = '<svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>'; go.onclick = () => { closeV(); openSub(p.subreddit, ''); };
+    top.append(x, ti, go, op);
+    const bt = el('div', 'vb'); bt.append(el('div', 't', p.title), el('div', 'm', (p.comments ? p.comments + ' Kommentare' : '') + (p.flair ? (p.comments ? ' · ' : '') + p.flair : '')));
+    s.append(gl, top, bt, dots);
+    return s;
+  }
+  const io = new IntersectionObserver((es) => es.forEach((e) => {
+    const s = e.target; if (!e.isIntersecting) return;
+    // aktuelle und die nächsten zwei Folien laden
+    let n = s; for (let i = 0; i < 3 && n; i++, n = n.nextElementSibling) n.querySelectorAll('img[data-src]').forEach((im) => { im.src = im.dataset.src; im.removeAttribute('data-src'); });
+    if (vs.children.length - [...vs.children].indexOf(s) < 6) more();
+  }), { root: vs, threshold: 0.5 });
+  function vAppend(list) { for (const p of list) { const s = slide(p); vs.append(s); io.observe(s); } }
+  function openV(i) {
+    if (vw.hidden) { history.pushState({ v: 1 }, '', location.href); }
+    vw.hidden = false; document.body.style.overflow = 'hidden';
+    vs.replaceChildren(); io.disconnect();
+    vAppend(posts);
+    vs.scrollTop = 0; requestAnimationFrame(() => { vs.scrollTo({ top: i * vs.clientHeight, behavior: 'instant' }); });
+    const h = $('#vHint'); h.style.opacity = 1; h.hidden = false; clearTimeout(h._t); h._t = setTimeout(() => { h.style.opacity = 0; }, 2600);
+  }
+  function closeV(back = true) {
+    if (vw.hidden) return;
+    vw.hidden = true; document.body.style.overflow = ''; io.disconnect();
+    const cur = Math.round(vs.scrollTop / (vs.clientHeight || 1)); vs.replaceChildren();
+    if (back && history.state && history.state.v) history.back();
+    const tl = grid.children[cur]; if (tl) tl.scrollIntoView({ block: 'center' });
+  }
+  const step = (d) => vs.scrollBy({ top: d * vs.clientHeight, behavior: 'smooth' });
+  $('#vUp').onclick = () => step(-1); $('#vDn').onclick = () => step(1);
+  addEventListener('keydown', (e) => {
+    if (vw.hidden) return;
+    if (e.key === 'Escape') closeV();
+    else if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); step(1); }
+    else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); step(-1); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const s = [...vs.children][Math.round(vs.scrollTop / vs.clientHeight)]; const g = s && s.querySelector('.gl');
+      if (g) { e.preventDefault(); g.scrollBy({ left: (e.key === 'ArrowRight' ? 1 : -1) * g.clientWidth, behavior: 'smooth' }); }
+    }
+  });
+
+  function fromUrl() {
+    const p = new URLSearchParams(location.search);
+    sub = (p.get('r') || '').replace(/[^A-Za-z0-9_+]/g, ''); text = p.get('q') || '';
+    show();
+  }
+  loadPop();
+  fromUrl();
+})();
+</script>
+</body>
+</html>
