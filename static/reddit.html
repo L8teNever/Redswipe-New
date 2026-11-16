@@ -140,6 +140,8 @@
   .mc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .8s; }
   .mc img.on { opacity: 1; }
   .mc.fit img { object-fit: contain; }
+  .mg.dyn { display: block; position: relative; }
+  .mg.dyn .mc { position: absolute; transition: left .6s, top .6s, width .6s, height .6s, opacity .8s; }
 </style>
 </head>
 <body>
@@ -461,45 +463,105 @@
 
   // ---------- Mosaik: 4 oder 6 Kacheln, Bilder wechseln zufällig ----------
   const mo = $('#mo'), mG = $('#mG');
-  let mN = +store.get('rd-mn', '4') === 6 ? 6 : 4, mSec = +store.get('rd-ms', '5') || 5, mFit = store.get('rd-mfit', '0') === '1';
-  let mPaused = false, mTimer = 0, mNext = 0, mUsed = new Set();
-  const mPool = () => posts.flatMap((p) => p.media.map((m, i) => ({ id: p.id + ':' + i, url: m.url })));
+  // mN: 4 oder 6 Felder, 0 = dynamisch (Bilder behalten ihr Format und füllen den Bildschirm)
+  let mN = [4, 6, 0].includes(+store.get('rd-mn', '4')) ? +store.get('rd-mn', '4') : 4, mSec = +store.get('rd-ms', '5') || 5, mFit = store.get('rd-mfit', '0') === '1';
+  let mPaused = false, mTimer = 0, mUsed = new Set(), mItems = [], mLast = -1;
+  const GAP = 3;
+  const mPool = () => posts.flatMap((p) => p.media.map((m, i) => ({ id: p.id + ':' + i, url: m.url, a: m.width && m.height ? m.width / m.height : 0 })));
   function mPick() {
     let c = mPool().filter((x) => !mUsed.has(x.id));
     if (c.length < 8 && !done) more();
-    if (!c.length) { mUsed.clear(); [...mG.querySelectorAll('img.on')].forEach((i) => mUsed.add(i.dataset.id)); c = mPool().filter((x) => !mUsed.has(x.id)); }
+    if (!c.length) { mUsed.clear(); mItems.forEach((x) => mUsed.add(x.id)); [...mG.querySelectorAll('img.on')].forEach((i) => mUsed.add(i.dataset.id)); c = mPool().filter((x) => !mUsed.has(x.id)); }
     if (!c.length) return null;
     const x = c[Math.floor(Math.random() * c.length)]; mUsed.add(x.id); return x;
   }
-  function mSet(cell) {
-    const x = mPick(); if (!x) return;
+  function mImg(cell, x) {
     const im = el('img'); im.dataset.id = x.id; im.alt = ''; im.decoding = 'async';
-    im.onload = () => { cell.querySelectorAll('img.on').forEach((o) => { o.classList.remove('on'); setTimeout(() => o.remove(), 900); }); requestAnimationFrame(() => im.classList.add('on')); };
+    im.onload = () => {
+      if (!x.a && im.naturalWidth) { x.a = im.naturalWidth / im.naturalHeight; if (!mN) dynLayout(); }
+      cell.querySelectorAll('img.on').forEach((o) => { o.classList.remove('on'); setTimeout(() => o.remove(), 900); }); requestAnimationFrame(() => im.classList.add('on'));
+    };
     im.onerror = () => im.remove();
     im.src = x.url; cell.append(im);
   }
+  function mSet(cell) { const x = mPick(); if (x) mImg(cell, x); }
+
+  // Dynamisch: Zeilen werden auf Bildschirmbreite gestreckt (Quer- und Hochformat gemischt, Format bleibt),
+  // die Zeilenanzahl wird so gewählt, dass die Höhe möglichst genau passt.
+  function dynPlan(W, H) {
+    const asp = (x) => Math.min(3, Math.max(0.35, x.a || 1));
+    const r0 = Math.max(2, Math.round(H / 260)); let best = null;
+    for (const R of [r0 - 1, r0, r0 + 1].filter((r) => r >= 1)) {
+      const T = (H - (R - 1) * GAP) / R, rows = []; let cur = [], sum = 0;
+      for (const x of mItems) {
+        cur.push(x); sum += asp(x);
+        if (sum * T >= W - GAP * (cur.length - 1)) { rows.push({ its: cur, sum }); cur = []; sum = 0; if (rows.length === R) break; }
+      }
+      if (cur.length && rows.length < R) rows.push({ its: cur, sum });
+      for (const r of rows) r.h = (W - GAP * (r.its.length - 1)) / r.sum;
+      const tot = rows.reduce((t, r) => t + r.h, 0) + GAP * (rows.length - 1), f = (H - GAP * (rows.length - 1)) / (tot - GAP * (rows.length - 1));
+      const sc = Math.abs(Math.log(f)) + (rows.length < R ? 1 : 0);
+      if (!best || sc < best.sc) best = { rows, f, sc };
+    }
+    return best;
+  }
+  function dynLayout() {
+    const W = mG.clientWidth, H = mG.clientHeight; if (!W || !H || !mItems.length) return;
+    const plan = dynPlan(W, H); if (!plan) return;
+    const used = new Set(); let y = 0;
+    plan.rows.forEach((r, ri) => {
+      const h = r.h * plan.f; let x = 0;
+      r.its.forEach((it, i) => {
+        const w = i === r.its.length - 1 ? W - x : (W - GAP * (r.its.length - 1)) * (Math.min(3, Math.max(0.35, it.a || 1)) / r.sum);
+        let c = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]');
+        if (!c) { c = el('div', 'mc'); c.dataset.id = it.id; c.onclick = () => mReplace(it); mG.append(c); mImg(c, it); c.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px'; }
+        else c.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px';
+        used.add(it.id); x += w + GAP;
+      });
+      y += h + GAP;
+    });
+    plan.shown = used; mShown = used;
+    [...mG.children].forEach((c) => { if (!used.has(c.dataset.id)) { c.style.opacity = 0; setTimeout(() => { if (!mShown.has(c.dataset.id)) c.remove(); }, 900); } });
+  }
+  let mShown = new Set();
+  function mReplace(it) {
+    const i = mItems.indexOf(it); if (i < 0) return; const x = mPick(); if (!x) return;
+    mItems[i] = x;
+    const old = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]'); if (old) { old.style.opacity = 0; setTimeout(() => old.remove(), 900); }
+    dynLayout();
+  }
   function mBuild() {
-    mG.className = 'mg n' + mN; mG.replaceChildren();
+    mG.className = 'mg ' + (mN ? 'n' + mN : 'dyn'); mG.replaceChildren(); mUsed.clear(); mItems = []; mShown = new Set(); mLast = -1;
+    if (!mN) {
+      for (let i = 0; i < 60; i++) { const x = mPick(); if (!x) break; mItems.push(x); }
+      dynLayout(); return;
+    }
     for (let i = 0; i < mN; i++) { const c = el('div', 'mc' + (mFit ? ' fit' : '')); c.onclick = () => mSet(c); mG.append(c); }
-    mUsed.clear(); [...mG.children].forEach(mSet);
+    [...mG.children].forEach(mSet);
   }
   function mTick() {
     clearInterval(mTimer);
-    // Kacheln nacheinander wechseln, gleichmäßig über das Intervall verteilt
-    mTimer = setInterval(() => { if (mPaused || document.hidden) return; mSet(mG.children[mNext % mG.children.length]); mNext++; }, Math.max(600, mSec * 1000 / mN));
+    // Alle x Sekunden wechselt genau ein Bild (zufällig, nie zweimal dieselbe Stelle hintereinander)
+    mTimer = setInterval(() => {
+      if (mPaused || document.hidden) return;
+      if (!mN) { const vis = mItems.filter((x) => mShown.has(x.id)); if (!vis.length) return; let it; do { it = vis[Math.floor(Math.random() * vis.length)]; } while (vis.length > 1 && it.id === mLast); mLast = it.id; mReplace(it); return; }
+      let i; do { i = Math.floor(Math.random() * mG.children.length); } while (mG.children.length > 1 && i === mLast); mLast = i; mSet(mG.children[i]);
+    }, mSec * 1000);
   }
   function mUi() {
-    $('#mN').replaceChildren(...[4, 6].map((n) => { const b = el('button', 'chip' + (mN === n ? ' on' : ''), n + ' Felder'); b.type = 'button'; b.onclick = () => { mN = n; store.set('rd-mn', n); mUi(); mBuild(); mTick(); }; return b; }));
+    $('#mN').replaceChildren(...[[4, '4 Felder'], [6, '6 Felder'], [0, 'Dynamisch']].map(([n, l]) => { const b = el('button', 'chip' + (mN === n ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { mN = n; store.set('rd-mn', n); mUi(); mBuild(); mTick(); }; return b; }));
     $('#mT').replaceChildren(...[3, 5, 10, 20].map((n) => { const b = el('button', 'chip' + (mSec === n ? ' on' : ''), n + ' s'); b.type = 'button'; b.onclick = () => { mSec = n; store.set('rd-ms', n); mUi(); mTick(); }; return b; }));
-    $('#mFit').classList.toggle('on', mFit); $('#mFit').textContent = mFit ? 'Ganz' : 'Füllen'; $('#mP').textContent = mPaused ? 'Weiter' : 'Pause'; $('#mP').classList.toggle('on', mPaused);
+    $('#mFit').hidden = !mN; $('#mFit').classList.toggle('on', mFit); $('#mFit').textContent = mFit ? 'Ganz' : 'Füllen'; $('#mP').textContent = mPaused ? 'Weiter' : 'Pause'; $('#mP').classList.toggle('on', mPaused);
   }
   function mOpen() {
     if (!posts.length) return;
-    mo.hidden = false; document.body.style.overflow = 'hidden'; mPaused = false; mNext = 0; mUi(); mBuild(); mTick();
+    mo.hidden = false; document.body.style.overflow = 'hidden'; mPaused = false; mUi();
+    requestAnimationFrame(() => { mBuild(); mTick(); });
     history.pushState({ m: 1 }, '', location.href);
   }
+  addEventListener('resize', () => { if (!mo.hidden && !mN) dynLayout(); });
   function mClose(back = true) {
-    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; mG.replaceChildren(); document.body.style.overflow = '';
+    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; mG.replaceChildren(); mItems = []; document.body.style.overflow = '';
     if (back && history.state && history.state.m) history.back();
   }
   $('#mosBtn').onclick = mOpen; $('#mX').onclick = () => mClose();
