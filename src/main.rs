@@ -307,7 +307,21 @@ fn listing_url(source: &Source, sort: &str, t: &str, after: Option<&str>) -> Str
 }
 
 /// Eine Listing-Seite von Reddit holen: bevorzugt über den eingeloggten Browser, sonst mit dem Cookie.
+/// Reddit sperrt für unseren Server-Browser die Adressen `www.reddit.com/r/<sub>/hot.json` ("blocked by network security").
+/// Dieselben Daten kommen unter `api.reddit.com/r/<sub>/hot` ohne Sperre. Gilt für Subreddits, Suche und Subreddit-Liste;
+/// Nutzer-Adressen (Multireddits, Likes) bleiben unverändert.
+pub fn api_url(url: &str) -> String {
+    let Some(rest) = url.strip_prefix("https://www.reddit.com") else { return url.to_string() };
+    if !(rest.starts_with("/r/") || rest.starts_with("/search") || rest.starts_with("/subreddits/")) {
+        return url.to_string();
+    }
+    let (path, query) = rest.split_once('?').map_or((rest, ""), |(p, q)| (p, q));
+    let path = path.strip_suffix(".json").unwrap_or(path);
+    if query.is_empty() { format!("https://api.reddit.com{path}") } else { format!("https://api.reddit.com{path}?{query}") }
+}
+
 async fn fetch_listing(st: &AppState, url: &str) -> Result<(Vec<Post>, Option<String>), (StatusCode, String)> {
+    let url = &api_url(url);
     let (mut posts, after) = if browser::configured() {
         match browser::fetch_text(url).await {
             Ok(text) => match serde_json::from_str::<Value>(&text) {
@@ -798,5 +812,17 @@ mod tests {
     fn host_allowlist() {
         assert!(ALLOWED_HOSTS.contains(&"i.redd.it"));
         assert!(!ALLOWED_HOSTS.contains(&"evil.com"));
+    }
+}
+
+#[cfg(test)]
+mod api_url_tests {
+    use super::api_url;
+    #[test]
+    fn rewrites_reddit_lists() {
+        assert_eq!(api_url("https://www.reddit.com/r/aww/hot.json?limit=25&raw_json=1"), "https://api.reddit.com/r/aww/hot?limit=25&raw_json=1");
+        assert_eq!(api_url("https://www.reddit.com/subreddits/popular.json?limit=24"), "https://api.reddit.com/subreddits/popular?limit=24");
+        assert_eq!(api_url("https://www.reddit.com/user/x/m/y/hot.json?limit=25"), "https://www.reddit.com/user/x/m/y/hot.json?limit=25");
+        assert_eq!(api_url("https://www.reddit.com/hot.json"), "https://www.reddit.com/hot.json");
     }
 }

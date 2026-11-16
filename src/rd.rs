@@ -144,6 +144,7 @@ fn sub_item(d: &Value) -> Option<Value> {
 
 /// Beliebiges Reddit-JSON holen: bevorzugt über den Browser auf dem Server, sonst mit Cookie.
 async fn fetch_json(st: &AppState, url: &str) -> Result<Value, (StatusCode, String)> {
+    let url = &super::api_url(url);
     if browser::configured() {
         match browser::fetch_text(url).await {
             Ok(text) => return serde_json::from_str(&text).map_err(|e| (StatusCode::BAD_GATEWAY, format!("Ungültige Antwort von Reddit: {e}"))),
