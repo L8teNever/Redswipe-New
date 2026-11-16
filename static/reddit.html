@@ -110,6 +110,36 @@
   .nav { position: absolute; z-index: 4; right: 10px; top: 50%; display: none; flex-direction: column; gap: 8px; transform: translateY(-50%); }
   .nav .ib { background: rgba(0,0,0,.5); }
   @media (hover: hover) and (pointer: fine) { .nav { display: flex; } }
+
+  /* Eigene Feeds */
+  .newfeed { border-style: dashed; color: var(--acc); font-weight: 700; justify-content: center; }
+  .sub .del { margin-left: auto; width: 28px; height: 28px; flex: none; }
+  .sub .del svg { width: 16px; height: 16px; }
+  #fd, #mo { position: fixed; inset: 0; z-index: 60; }
+  #fd { background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+  .fp { background: #1d1a1b; border: 1px solid var(--line); border-radius: 20px 20px 0 0; width: 100%; max-width: 560px; max-height: 88vh; overflow: auto; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  @media (min-width: 720px) { #fd { align-items: center; } .fp { border-radius: 20px; } }
+  .fp h2 { margin: 0 0 12px; font-size: 20px; }
+  .fp input { width: 100%; height: 44px; border-radius: 14px; border: 1px solid var(--line); background: #121011; padding: 0 14px; outline: none; margin-bottom: 10px; }
+  .fp input:focus { border-color: var(--acc); }
+  .fp .chips { flex-wrap: wrap; margin-bottom: 10px; }
+  .fp #fSug { margin-bottom: 10px; }
+  .fp .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  .btn2 { height: 40px; padding: 0 18px; border-radius: 20px; border: 1px solid var(--line); background: var(--surf-2); cursor: pointer; font-weight: 700; }
+  .btn2.pri { background: var(--acc); color: var(--on-acc); border-color: transparent; }
+  .btn2[disabled] { opacity: .4; }
+
+  /* Mosaik */
+  #mo { background: #000; display: flex; flex-direction: column; }
+  .mt { display: flex; align-items: center; gap: 6px; padding: calc(6px + env(safe-area-inset-top)) 8px 6px; flex: none; flex-wrap: wrap; }
+  .mt .chip { height: 32px; padding: 0 12px; }
+  .mg { flex: 1; min-height: 0; display: grid; gap: 3px; padding: 0 3px calc(3px + env(safe-area-inset-bottom)); grid-template-columns: 1fr 1fr; grid-template-rows: repeat(2, 1fr); }
+  .mg.n6 { grid-template-rows: repeat(3, 1fr); }
+  @media (orientation: landscape) { .mg.n6 { grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr; } }
+  .mc { position: relative; overflow: hidden; background: #111; border-radius: 6px; cursor: pointer; min-height: 0; min-width: 0; }
+  .mc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .8s; }
+  .mc img.on { opacity: 1; }
+  .mc.fit img { object-fit: contain; }
 </style>
 </head>
 <body>
@@ -130,11 +160,13 @@
   <div class="chips" id="sorts"></div>
   <div class="chips" id="times" hidden></div>
   <span class="sp"></span>
+  <button class="chip" id="mosBtn" type="button">▦ Mosaik</button>
   <button class="go" id="swipeBtn" type="button"><svg viewBox="0 0 24 24"><path d="M17 1.01 7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>Swipen</button>
 </div>
 
 <main>
   <div id="home">
+    <h3>EIGENE FEEDS</h3><div class="subs" id="sets"></div>
     <h3 id="favH" hidden>GEMERKT</h3><div class="subs" id="favs"></div>
     <h3>BELIEBTE SUBREDDITS</h3><div class="subs" id="pop"></div>
   </div>
@@ -142,6 +174,25 @@
   <div id="state"></div>
   <div id="sent"></div>
 </main>
+
+
+<div id="fd" hidden><div class="fp" role="dialog" aria-label="Eigener Feed">
+  <h2 id="fT">Neuer Feed</h2>
+  <input id="fName" placeholder="Name, z. B. Katzen & Natur" maxlength="40" autocomplete="off">
+  <div class="chips" id="fChips"></div>
+  <input id="fQ" type="search" placeholder="Subreddit suchen und antippen …" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <div id="fSug"></div>
+  <div class="acts"><button class="btn2" id="fX" type="button">Abbrechen</button><button class="btn2 pri" id="fOk" type="button" disabled>Speichern</button></div>
+</div></div>
+
+<div id="mo" hidden>
+  <div class="mt">
+    <button class="ib" id="mX" type="button" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    <div class="chips" id="mN"></div><div class="chips" id="mT"></div>
+    <button class="chip" id="mFit" type="button">Ganz</button><button class="chip" id="mP" type="button">Pause</button>
+  </div>
+  <div class="mg" id="mG"></div>
+</div>
 
 <div id="vw" hidden>
   <div id="vs"></div>
@@ -191,7 +242,7 @@
   function renderFavs() {
     const f = favs();
     $('#favH').hidden = !f.length;
-    $('#favs').replaceChildren(...f.map(subCard));
+    $('#favs').replaceChildren(...f.map(subCard)); renderSets();
   }
   async function loadPop() {
     try { const j = await api('/api/rd/subs'); $('#pop').replaceChildren(...j.subs.map(subCard)); }
@@ -229,6 +280,7 @@
 
   // ---------- Quelle öffnen ----------
   function openSub(name, txt, info, push = true) {
+    if (!(name || '').includes('+')) setName = '';
     sub = name || ''; text = txt || '';
     if (info && sub) { const f = favs(); const i = f.findIndex((x) => x.name.toLowerCase() === sub.toLowerCase()); if (i >= 0) { f[i] = { ...f[i], ...info }; store.set('rd-favs', JSON.stringify(f)); } }
     q.value = '';
@@ -242,13 +294,13 @@
     const browsing = !!(sub || text);
     home.hidden = browsing; grid.hidden = !browsing; $('#bar').hidden = !browsing;
     if (!browsing) { document.title = 'Redswipe · Reddit'; tok++; stateEl.replaceChildren(); renderFavs(); return; }
-    $('#curT').textContent = (text ? '„' + text + '“ ' : '') + (sub ? 'in r/' + sub : 'auf Reddit');
+    $('#curT').textContent = (text ? '„' + text + '“ ' : '') + (sub ? (sub.includes('+') ? 'Feed ' + (setName || sub.split('+').length + ' Subreddits') : 'in r/' + sub) : 'auf Reddit');
     document.title = (sub ? 'r/' + sub : text) + ' · Reddit';
     renderChips();
     reload();
   }
   $('#cur').onclick = () => { if (text && sub) openSub(sub, ''); else openSub('', ''); };
-  addEventListener('popstate', () => { if (!$('#vw').hidden) { closeV(false); return; } fromUrl(); });
+  addEventListener('popstate', () => { if (!$('#mo').hidden) { mClose(false); return; } if (!$('#vw').hidden) { closeV(false); return; } fromUrl(); });
 
   function renderChips() {
     const s = $('#sorts'); s.replaceChildren();
@@ -354,6 +406,103 @@
       if (g) { e.preventDefault(); g.scrollBy({ left: (e.key === 'ArrowRight' ? 1 : -1) * g.clientWidth, behavior: 'smooth' }); }
     }
   });
+
+  // ---------- Eigene Feeds (mehrere Subreddits zusammen) ----------
+  const sets = () => { try { return JSON.parse(store.get('rd-sets', '[]')) || []; } catch { return []; } };
+  const setsSave = (a) => store.set('rd-sets', JSON.stringify(a));
+  function renderSets() {
+    const box = $('#sets'); box.replaceChildren();
+    sets().forEach((f, i) => {
+      const c = el('div', 'sub'); c.tabIndex = 0;
+      const a = el('div', 'ava', '▦'); const tx = el('div', 'tx'); tx.append(el('b', '', f.name), el('small', '', f.subs.length + ' Subreddits'));
+      const ed = el('button', 'ib del'); ed.type = 'button'; ed.textContent = '✎'; ed.setAttribute('aria-label', 'Bearbeiten'); ed.onclick = (e) => { e.stopPropagation(); feedDlg(i); };
+      c.append(a, tx, ed); c.onclick = () => { setName = f.name; openSub(f.subs.join('+'), ''); }; box.append(c);
+    });
+    const n = el('button', 'sub newfeed', '+ Neuer Feed'); n.type = 'button'; n.onclick = () => feedDlg(-1); box.append(n);
+  }
+  let setName = '', fEdit = -1, fSubs = [];
+  const fd = $('#fd');
+  function feedDlg(i) {
+    fEdit = i; const f = i >= 0 ? sets()[i] : null;
+    $('#fT').textContent = f ? 'Feed bearbeiten' : 'Neuer Feed';
+    $('#fName').value = f ? f.name : ''; fSubs = f ? [...f.subs] : []; $('#fQ').value = ''; $('#fSug').replaceChildren();
+    if (f) { const d = el('button', 'btn2', 'Löschen'); d.type = 'button'; d.id = 'fDel'; d.onclick = () => { const a = sets(); a.splice(i, 1); setsSave(a); fd.hidden = true; renderSets(); }; $('#fX').before(d); }
+    else $('#fDel') && $('#fDel').remove();
+    fChips(); fd.hidden = false;
+  }
+  function fChips() {
+    $('#fChips').replaceChildren(...fSubs.map((n) => { const b = el('button', 'chip on', 'r/' + n + '  ✕'); b.type = 'button'; b.onclick = () => { fSubs = fSubs.filter((x) => x !== n); fChips(); }; return b; }));
+    $('#fOk').disabled = !fSubs.length;
+  }
+  let fT = 0, fTok = 0;
+  $('#fQ').addEventListener('input', () => {
+    clearTimeout(fT); const v = $('#fQ').value.trim().replace(/^\/?r\//i, '');
+    if (!v) { $('#fSug').replaceChildren(); return; }
+    fT = setTimeout(async () => {
+      const my = ++fTok;
+      try {
+        const j = await api('/api/rd/subs?q=' + encodeURIComponent(v)); if (my !== fTok) return;
+        $('#fSug').replaceChildren(...j.subs.map((s) => sgRow(avaOf(s.name, s.icon), 'r/' + s.name, (s.subs ? fmtN(s.subs) + ' Mitglieder' : '') + (s.nsfw ? ' · 18+' : ''), () => {
+          if (!fSubs.includes(s.name) && fSubs.length < 20) fSubs.push(s.name); fChips(); $('#fQ').value = ''; $('#fSug').replaceChildren(); })));
+      } catch {}
+    }, 250);
+  });
+  $('#fQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const v = $('#fQ').value.trim().replace(/^\/?r\//i, ''); if (/^\w{1,21}$/.test(v) && !fSubs.includes(v)) { fSubs.push(v); fChips(); $('#fQ').value = ''; $('#fSug').replaceChildren(); } } });
+  $('#fX').onclick = () => { fd.hidden = true; };
+  fd.addEventListener('click', (e) => { if (e.target === fd) fd.hidden = true; });
+  $('#fOk').onclick = () => {
+    const a = sets(), f = { name: $('#fName').value.trim() || fSubs.slice(0, 3).map((x) => 'r/' + x).join(' + '), subs: [...fSubs] };
+    if (fEdit >= 0) a[fEdit] = f; else a.unshift(f);
+    setsSave(a); fd.hidden = true; renderSets();
+  };
+
+  // ---------- Mosaik: 4 oder 6 Kacheln, Bilder wechseln zufällig ----------
+  const mo = $('#mo'), mG = $('#mG');
+  let mN = +store.get('rd-mn', '4') === 6 ? 6 : 4, mSec = +store.get('rd-ms', '5') || 5, mFit = store.get('rd-mfit', '0') === '1';
+  let mPaused = false, mTimer = 0, mNext = 0, mUsed = new Set();
+  const mPool = () => posts.flatMap((p) => p.media.map((m, i) => ({ id: p.id + ':' + i, url: m.url })));
+  function mPick() {
+    let c = mPool().filter((x) => !mUsed.has(x.id));
+    if (c.length < 8 && !done) more();
+    if (!c.length) { mUsed.clear(); [...mG.querySelectorAll('img.on')].forEach((i) => mUsed.add(i.dataset.id)); c = mPool().filter((x) => !mUsed.has(x.id)); }
+    if (!c.length) return null;
+    const x = c[Math.floor(Math.random() * c.length)]; mUsed.add(x.id); return x;
+  }
+  function mSet(cell) {
+    const x = mPick(); if (!x) return;
+    const im = el('img'); im.dataset.id = x.id; im.alt = ''; im.decoding = 'async';
+    im.onload = () => { cell.querySelectorAll('img.on').forEach((o) => { o.classList.remove('on'); setTimeout(() => o.remove(), 900); }); requestAnimationFrame(() => im.classList.add('on')); };
+    im.onerror = () => im.remove();
+    im.src = x.url; cell.append(im);
+  }
+  function mBuild() {
+    mG.className = 'mg n' + mN; mG.replaceChildren();
+    for (let i = 0; i < mN; i++) { const c = el('div', 'mc' + (mFit ? ' fit' : '')); c.onclick = () => mSet(c); mG.append(c); }
+    mUsed.clear(); [...mG.children].forEach(mSet);
+  }
+  function mTick() {
+    clearInterval(mTimer);
+    // Kacheln nacheinander wechseln, gleichmäßig über das Intervall verteilt
+    mTimer = setInterval(() => { if (mPaused || document.hidden) return; mSet(mG.children[mNext % mG.children.length]); mNext++; }, Math.max(600, mSec * 1000 / mN));
+  }
+  function mUi() {
+    $('#mN').replaceChildren(...[4, 6].map((n) => { const b = el('button', 'chip' + (mN === n ? ' on' : ''), n + ' Felder'); b.type = 'button'; b.onclick = () => { mN = n; store.set('rd-mn', n); mUi(); mBuild(); mTick(); }; return b; }));
+    $('#mT').replaceChildren(...[3, 5, 10, 20].map((n) => { const b = el('button', 'chip' + (mSec === n ? ' on' : ''), n + ' s'); b.type = 'button'; b.onclick = () => { mSec = n; store.set('rd-ms', n); mUi(); mTick(); }; return b; }));
+    $('#mFit').classList.toggle('on', mFit); $('#mFit').textContent = mFit ? 'Ganz' : 'Füllen'; $('#mP').textContent = mPaused ? 'Weiter' : 'Pause'; $('#mP').classList.toggle('on', mPaused);
+  }
+  function mOpen() {
+    if (!posts.length) return;
+    mo.hidden = false; document.body.style.overflow = 'hidden'; mPaused = false; mNext = 0; mUi(); mBuild(); mTick();
+    history.pushState({ m: 1 }, '', location.href);
+  }
+  function mClose(back = true) {
+    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; mG.replaceChildren(); document.body.style.overflow = '';
+    if (back && history.state && history.state.m) history.back();
+  }
+  $('#mosBtn').onclick = mOpen; $('#mX').onclick = () => mClose();
+  $('#mFit').onclick = () => { mFit = !mFit; store.set('rd-mfit', mFit ? '1' : '0'); [...mG.children].forEach((c) => c.classList.toggle('fit', mFit)); mUi(); };
+  $('#mP').onclick = () => { mPaused = !mPaused; mUi(); };
+  addEventListener('keydown', (e) => { if (mo.hidden) return; if (e.key === 'Escape') mClose(); else if (e.key === ' ') { e.preventDefault(); $('#mP').click(); } });
 
   function fromUrl() {
     const p = new URLSearchParams(location.search);
