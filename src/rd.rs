@@ -111,7 +111,7 @@ pub async fn subs(State(st): State<AppState>, Query(p): Query<SubsQ>) -> Respons
         "https://www.reddit.com/subreddits/popular.json?limit=24&raw_json=1".to_string()
     } else {
         format!(
-            "https://www.reddit.com/subreddits/search.json?q={}&limit=24&raw_json=1&include_over_18=on",
+            "https://www.reddit.com/api/subreddit_autocomplete_v2.json?query={}&limit=24&raw_json=1&include_over_18=true&include_profiles=false",
             urlencoding::encode(&q.chars().take(60).collect::<String>())
         )
     };
@@ -129,7 +129,7 @@ pub async fn subs(State(st): State<AppState>, Query(p): Query<SubsQ>) -> Respons
 
 fn sub_item(d: &Value) -> Option<Value> {
     let name = d["display_name"].as_str()?;
-    if d["subreddit_type"].as_str() == Some("private") {
+    if d["subreddit_type"].as_str() == Some("private") || ["home", "popular", "all"].contains(&name.to_lowercase().as_str()) {
         return None;
     }
     let icon = d["community_icon"].as_str().filter(|s| !s.is_empty()).or_else(|| d["icon_img"].as_str().filter(|s| !s.is_empty()));
