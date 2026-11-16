@@ -44,12 +44,18 @@ pub async fn feed(State(st): State<AppState>, Query(p): Query<FeedQ>) -> Respons
         return err(StatusCode::BAD_REQUEST, "Ungültiger Seiten-Cursor");
     }
     let sub = p.sub.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("popular");
-    let Some(Source::Sub(sub)) = parse_source(sub) else {
-        return err(StatusCode::BAD_REQUEST, "Kein gültiges Subreddit");
+    let source = match parse_source(sub) {
+        Some(Source::Sub(s)) => Source::Sub(s),
+        Some(Source::Multi(u, n)) => Source::Multi(u, n),
+        _ => return err(StatusCode::BAD_REQUEST, "Kein gültiges Subreddit"),
+    };
+    let sub = match &source {
+        Source::Sub(s) => s.clone(),
+        _ => "popular".to_string(),
     };
     let text = p.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| s.chars().take(100).collect::<String>());
     // Subreddit "popular" ohne Suchtext: normales Listing; mit Suchtext: Suche über alles
-    let global = sub.eq_ignore_ascii_case("popular") || sub.eq_ignore_ascii_case("all");
+    let global = !matches!(source, Source::Sub(_)) || sub.eq_ignore_ascii_case("popular") || sub.eq_ignore_ascii_case("all");
 
     let mut out = Vec::new();
     // Viele Beiträge sind Videos oder Text: bis zu drei Seiten holen, damit genug Bilder zusammenkommen.
@@ -72,7 +78,7 @@ pub async fn feed(State(st): State<AppState>, Query(p): Query<FeedQ>) -> Respons
                 }
                 u
             }
-            None => listing_url(&Source::Sub(sub.clone()), if sort == "best" { "hot" } else { &sort }, &t, after.as_deref()),
+            None => listing_url(&source, if sort == "best" { "hot" } else { &sort }, &t, after.as_deref()),
         };
         match fetch_listing(&st, &url).await {
             Ok((posts, next)) => {

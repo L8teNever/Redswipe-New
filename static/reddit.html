@@ -280,7 +280,7 @@
 
   // ---------- Quelle öffnen ----------
   function openSub(name, txt, info, push = true) {
-    if (!(name || '').includes('+')) setName = '';
+    if (!/[+\/]/.test(name || '')) setName = '';
     sub = name || ''; text = txt || '';
     if (info && sub) { const f = favs(); const i = f.findIndex((x) => x.name.toLowerCase() === sub.toLowerCase()); if (i >= 0) { f[i] = { ...f[i], ...info }; store.set('rd-favs', JSON.stringify(f)); } }
     q.value = '';
@@ -294,7 +294,7 @@
     const browsing = !!(sub || text);
     home.hidden = browsing; grid.hidden = !browsing; $('#bar').hidden = !browsing;
     if (!browsing) { document.title = 'Redswipe · Reddit'; tok++; stateEl.replaceChildren(); renderFavs(); return; }
-    $('#curT').textContent = (text ? '„' + text + '“ ' : '') + (sub ? (sub.includes('+') ? 'Feed ' + (setName || sub.split('+').length + ' Subreddits') : 'in r/' + sub) : 'auf Reddit');
+    $('#curT').textContent = (text ? '„' + text + '“ ' : '') + (sub ? (sub.includes('+') || sub.includes('/') ? 'Feed ' + (setName || sub.split('+').length + ' Subreddits') : 'in r/' + sub) : 'auf Reddit');
     document.title = (sub ? 'r/' + sub : text) + ' · Reddit';
     renderChips();
     reload();
@@ -310,7 +310,7 @@
     const f = favs().some((x) => sub && x.name.toLowerCase() === sub.toLowerCase());
     let fb = $('#favBtn');
     if (!fb) { fb = el('button', 'chip'); fb.id = 'favBtn'; fb.type = 'button'; $('#bar').insertBefore(fb, $('.sp')); fb.onclick = toggleFav; }
-    fb.hidden = !sub || sub.includes('+'); fb.textContent = f ? '★ Gemerkt' : '☆ Merken'; fb.classList.toggle('on', f);
+    fb.hidden = !sub || /[+\/]/.test(sub); fb.textContent = f ? '★ Gemerkt' : '☆ Merken'; fb.classList.toggle('on', f);
   }
   function toggleFav() {
     let f = favs(); const i = f.findIndex((x) => x.name.toLowerCase() === sub.toLowerCase());
@@ -408,15 +408,18 @@
   });
 
   // ---------- Eigene Feeds (mehrere Subreddits zusammen) ----------
-  const sets = () => { try { return JSON.parse(store.get('rd-sets', '[]')) || []; } catch { return []; } };
+  const DEF_SET = { name: 'Mein Standard-Feed', subs: ['u/Brilliant-Nothing684/m/redswipe'], fixed: true };
+  const SEED = [{ name: 'Bikini & Dekolleté', subs: ['bikinis', 'bikinibodies', 'cleavage', 'SFWRedheads', 'SFWNextDoorGirls', 'lingerie'] }];
+  const sets = () => { try { const v = store.get('rd-sets', null); return v === null ? SEED : (JSON.parse(v) || []); } catch { return []; } };
   const setsSave = (a) => store.set('rd-sets', JSON.stringify(a));
   function renderSets() {
     const box = $('#sets'); box.replaceChildren();
-    sets().forEach((f, i) => {
+    [DEF_SET, ...sets()].forEach((f, j) => {
+      const i = j - 1;
       const c = el('div', 'sub'); c.tabIndex = 0;
-      const a = el('div', 'ava', '▦'); const tx = el('div', 'tx'); tx.append(el('b', '', f.name), el('small', '', f.subs.length + ' Subreddits'));
+      const a = el('div', 'ava', '▦'); const tx = el('div', 'tx'); tx.append(el('b', '', f.name), el('small', '', f.fixed ? 'Dein Multireddit' : f.subs.length + ' Subreddits'));
       const ed = el('button', 'ib del'); ed.type = 'button'; ed.textContent = '✎'; ed.setAttribute('aria-label', 'Bearbeiten'); ed.onclick = (e) => { e.stopPropagation(); feedDlg(i); };
-      c.append(a, tx, ed); c.onclick = () => { setName = f.name; openSub(f.subs.join('+'), ''); }; box.append(c);
+      c.append(a, tx); if (!f.fixed) c.append(ed); c.onclick = () => { setName = f.name; openSub(f.subs.join('+'), ''); }; box.append(c);
     });
     const n = el('button', 'sub newfeed', '+ Neuer Feed'); n.type = 'button'; n.onclick = () => feedDlg(-1); box.append(n);
   }
@@ -506,7 +509,7 @@
 
   function fromUrl() {
     const p = new URLSearchParams(location.search);
-    sub = (p.get('r') || '').replace(/[^A-Za-z0-9_+]/g, ''); text = p.get('q') || '';
+    sub = (p.get('r') || '').replace(/[^A-Za-z0-9_+\/-]/g, ''); text = p.get('q') || '';
     show();
   }
   loadPop();
