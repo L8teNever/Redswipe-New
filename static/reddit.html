@@ -141,7 +141,7 @@
   .mc img.on { opacity: 1; }
   .mc.fit img { object-fit: contain; }
   #ml { position: absolute; inset: 0; z-index: 5; background: #000; display: flex; flex-direction: column; }
-  #ml img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+  #ml img { flex: 1; min-height: 0; min-width: 0; align-self: center; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
   .mlt { display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 10px 8px; flex: none; }
   .mls { display: flex; flex-direction: column; min-width: 0; } .mls b { cursor: pointer; text-decoration: underline; } .mls small { color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mlb { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); flex: none; }
@@ -173,7 +173,7 @@
 
 <main>
   <div id="home">
-    <h3>EIGENE FEEDS</h3><div class="subs" id="sets"></div>
+    <h3>EIGENE FEEDS</h3><div class="subs" id="sets"></div><div id="hid"></div>
     <h3 id="favH" hidden>GEMERKT</h3><div class="subs" id="favs"></div>
     <h3>BELIEBTE SUBREDDITS</h3><div class="subs" id="pop"></div>
   </div>
@@ -223,6 +223,8 @@
 
   // Aktuelle Quelle: sub (leer = Startseite mit Auswahl), text (Suche nach Beiträgen)
   let sub = '', text = '', sort = store.get('rd-sort', 'hot'), t = store.get('rd-t', 'day');
+  const hidSubs = () => { try { return JSON.parse(store.get('rd-hide', '[]')) || []; } catch { return []; } };
+  const isHid = (n) => hidSubs().includes(String(n).toLowerCase());
   let posts = [], after = null, busy = false, done = false, tok = 0;
   const seen = new Set();
   const favs = () => { try { return JSON.parse(store.get('rd-favs', '[]')) || []; } catch { return []; } };
@@ -339,7 +341,7 @@
       const p = new URLSearchParams({ sub, q: text, sort, t }); if (after) p.set('after', after);
       const j = await api('/api/rd/feed?' + p);
       if (my !== tok) return;
-      const fresh = j.posts.filter((x) => !seen.has(x.id)); fresh.forEach((x) => seen.add(x.id));
+      const hs = hidSubs(); const fresh = j.posts.filter((x) => !seen.has(x.id) && !hs.includes(x.subreddit.toLowerCase())); fresh.forEach((x) => seen.add(x.id));
       after = j.after; if (!after) done = true;
       posts.push(...fresh); fresh.forEach(tile); if (!vw.hidden) vAppend(fresh);
       stateEl.replaceChildren();
@@ -424,7 +426,14 @@
   const SEED = [{ name: 'Bikini & Dekolleté', subs: ['bikinis', 'bikinibodies', 'cleavage', 'SFWRedheads', 'SFWNextDoorGirls', 'lingerie'] }];
   const sets = () => { try { const v = store.get('rd-sets', null); return v === null ? SEED : (JSON.parse(v) || []); } catch { return []; } };
   const setsSave = (a) => store.set('rd-sets', JSON.stringify(a));
+  function renderHid() {
+    const h = hidSubs(), box = $('#hid'); box.replaceChildren(); if (!h.length) return;
+    const t = el('p', 'msg', 'Ausgeblendet (antippen = wieder einblenden):'); const w = el('div', 'chips');
+    h.forEach((n) => { const b = el('button', 'chip on', 'r/' + n + '  ✕'); b.type = 'button'; b.onclick = () => { store.set('rd-hide', JSON.stringify(hidSubs().filter((x) => x !== n))); renderHid(); }; w.append(b); });
+    box.append(t, w);
+  }
   function renderSets() {
+    renderHid();
     const box = $('#sets'); box.replaceChildren();
     [DEF_SET, ...sets()].forEach((f, j) => {
       const i = j - 1;
@@ -638,8 +647,7 @@
     mBig = { x, cell }; $('#mlI').src = x.url;
     $('#mlR').textContent = 'r/' + x.sub; $('#mlT').textContent = x.title || '';
     const i = curSetIdx(), f = i >= 0 ? sets()[i] : null;
-    $('#mlDel').hidden = !(f && f.subs.length > 1);
-    $('#mlDel').textContent = 'Aus Feed entfernen';
+    $('#mlDel').textContent = f && f.subs.length > 1 ? 'Aus Feed entfernen' : 'Subreddit ausblenden';
     ml.hidden = false; history.pushState({ m: 1, l: 1 }, '', location.href);
   }
   function mCloseBig(back = true) {
@@ -655,11 +663,12 @@
     mFill();
   };
   $('#mlDel').onclick = () => {
-    const b = mBig, i = curSetIdx(); if (!b || i < 0) return;
-    const a = sets(), n = b.x.sub.toLowerCase(), subs = a[i].subs.filter((v) => v.toLowerCase() !== n);
-    if (!subs.length) return;
-    a[i].subs = subs; setsSave(a);
-    sub = subs.join('+'); history.replaceState(history.state, '', urlFor());
+    const b = mBig, i = curSetIdx(); if (!b) return;
+    const n = b.x.sub.toLowerCase();
+    if (i >= 0 && sets()[i].subs.length > 1) {
+      const a = sets(); a[i].subs = a[i].subs.filter((v) => v.toLowerCase() !== n); setsSave(a);
+      sub = a[i].subs.join('+'); history.replaceState(history.state, '', urlFor());
+    } else store.set('rd-hide', JSON.stringify([...new Set([...hidSubs(), n])]));
     posts = posts.filter((p) => p.subreddit.toLowerCase() !== n); mStale = true;
     tok++; busy = false; after = null; done = false;
     mReady = mReady.filter((r) => r.sub.toLowerCase() !== n); mItems = mItems.filter((r) => r.sub.toLowerCase() !== n);
