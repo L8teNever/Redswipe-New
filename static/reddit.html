@@ -140,6 +140,11 @@
   .mc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .8s; }
   .mc img.on { opacity: 1; }
   .mc.fit img { object-fit: contain; }
+  #ml { position: absolute; inset: 0; z-index: 5; background: #000; display: flex; flex-direction: column; }
+  #ml img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+  .mlt { display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 10px 8px; flex: none; }
+  .mls { display: flex; flex-direction: column; min-width: 0; } .mls b { cursor: pointer; text-decoration: underline; } .mls small { color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mlb { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); flex: none; }
   .mg.dyn { display: block; position: relative; }
   .mg.dyn .mc { position: absolute; background: transparent; transition: left .6s, top .6s, width .6s, height .6s, opacity .8s; }
 </style>
@@ -194,6 +199,11 @@
     <button class="chip" id="mFit" type="button">Ganz</button><button class="chip" id="mP" type="button">Pause</button>
   </div>
   <div class="mg" id="mG"></div>
+  <div id="ml" hidden>
+    <div class="mlt"><button class="ib" id="mlX" type="button" aria-label="Schließen"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button><div class="mls"><b id="mlR"></b><small id="mlT"></small></div></div>
+    <img id="mlI" alt="">
+    <div class="mlb"><button class="chip" id="mlNew" type="button">Anderes Bild</button><button class="chip" id="mlDel" type="button">Aus Feed entfernen</button></div>
+  </div>
 </div>
 
 <div id="vw" hidden>
@@ -302,7 +312,7 @@
     reload();
   }
   $('#cur').onclick = () => { if (text && sub) openSub(sub, ''); else openSub('', ''); };
-  addEventListener('popstate', () => { if (!$('#mo').hidden) { mClose(false); return; } if (!$('#vw').hidden) { closeV(false); return; } fromUrl(); });
+  addEventListener('popstate', () => { if (mSkipPop) { mSkipPop = false; return; } if (!ml.hidden) { mCloseBig(false); return; } if (!$('#mo').hidden) { mClose(false); return; } if (!$('#vw').hidden) { closeV(false); return; } fromUrl(); });
 
   function renderChips() {
     const s = $('#sorts'); s.replaceChildren();
@@ -472,7 +482,7 @@
   let mReady = [], mLoading = 0, mGen = 0, mFail = 0, mLock = false, mSkip = 0, mNeed = true, mStarted = false, mMoreP = false;
   const mInfl = new Set();
   const asp = (x) => Math.min(3, Math.max(0.35, x.a || 1));
-  const mPool = () => posts.flatMap((p) => p.media.map((m, i) => ({ id: p.id + ':' + i, url: m.url, a: m.width && m.height ? m.width / m.height : 0 })));
+  const mPool = () => posts.flatMap((p) => p.media.map((m, i) => ({ id: p.id + ':' + i, url: m.url, a: m.width && m.height ? m.width / m.height : 0, sub: p.subreddit, title: p.title, link: p.permalink })));
   const mShownItems = () => (mN ? [...mG.children].map((c) => c._x).filter(Boolean) : mItems);
   function mLockFor(ms = 900) { mLock = true; setTimeout(() => { mLock = false; }, ms); }
 
@@ -550,7 +560,7 @@
         const w = i === r.its.length - 1 ? W - x : (W - GAP * (r.its.length - 1)) * (asp(it) / r.sum);
         const st = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px';
         let c = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]');
-        if (!c) { c = el('div', 'mc'); c.dataset.id = it.id; c.onclick = () => dynTap(it); c.style.cssText = st; mG.append(c); mPut(c, it); }
+        if (!c) { c = el('div', 'mc'); c.dataset.id = it.id; c.onclick = () => mOpenBig(it, c); c.style.cssText = st; mG.append(c); mPut(c, it); }
         else c.style.cssText = st;
         used.add(it.id); x += w + GAP;
       });
@@ -578,7 +588,7 @@
     mItems[k] = x; mLast = x.id; mLockFor();
     const old = mG.querySelector('.mc[data-id="' + CSS.escape(it.id) + '"]');
     if (relayout || !old) { dynLayout(); return; }
-    const c = el('div', 'mc'); c.dataset.id = x.id; c.onclick = () => dynTap(x); c.style.cssText = old.style.cssText; mG.append(c); mPut(c, x);
+    const c = el('div', 'mc'); c.dataset.id = x.id; c.onclick = () => mOpenBig(x, c); c.style.cssText = old.style.cssText; mG.append(c); mPut(c, x);
     old.dataset.id = '~' + it.id; mShown.delete(it.id); mShown.add(x.id);
     setTimeout(() => old.remove(), 1000);
   }
@@ -593,7 +603,7 @@
     mG.className = 'mg ' + (mN ? 'n' + mN : 'dyn'); mG.replaceChildren();
     if (mN) for (let i = 0; i < mN; i++) {
       const c = el('div', 'mc' + (mFit ? ' fit' : ''));
-      c.onclick = () => { if (!mReady.length) { mFill(); return; } mPut(c, mTake()); mLockFor(); mFill(); };
+      c.onclick = () => { if (c._x) mOpenBig(c._x, c); };
       mG.append(c);
     } else { const g = mGen; setTimeout(() => { if (g === mGen && !mStarted && mReady.length) { mStarted = true; dynLayout(); } }, 1500); }
     mFill();
@@ -602,7 +612,7 @@
     clearInterval(mTimer);
     // Alle x Sekunden wechselt genau ein Bild; das nächste erst, wenn das vorige sauber eingeblendet ist
     mTimer = setInterval(() => {
-      if (mPaused || document.hidden || mLock) return;
+      if (mPaused || document.hidden || mLock || !ml.hidden) return;
       if (!mN) {
         if (!mItems.length) { mFill(); return; }
         const m = dynFind(0.22);
@@ -620,6 +630,43 @@
       mLast = i; mPut(cells[i], mTake()); mLockFor(); mFill();
     }, mSec * 1000);
   }
+
+  // ---------- Großansicht eines Mosaik-Bildes ----------
+  const ml = $('#ml'); let mSkipPop = false, mBig = null, mStale = false;
+  const curSetIdx = () => sets().findIndex((f) => f.subs.join('+') === sub);
+  function mOpenBig(x, cell) {
+    mBig = { x, cell }; $('#mlI').src = x.url;
+    $('#mlR').textContent = 'r/' + x.sub; $('#mlT').textContent = x.title || '';
+    const i = curSetIdx(), f = i >= 0 ? sets()[i] : null;
+    $('#mlDel').hidden = !(f && f.subs.length > 1);
+    $('#mlDel').textContent = 'Aus Feed entfernen';
+    ml.hidden = false; history.pushState({ m: 1, l: 1 }, '', location.href);
+  }
+  function mCloseBig(back = true) {
+    if (ml.hidden) return; ml.hidden = true; $('#mlI').removeAttribute('src');
+    if (back && history.state && history.state.l) { mSkipPop = true; history.back(); }
+  }
+  $('#mlX').onclick = () => mCloseBig();
+  ml.addEventListener('click', (e) => { if (e.target === ml || e.target === $('#mlI')) mCloseBig(); });
+  $('#mlR').onclick = () => { const n = mBig.x.sub; mCloseBig(false); mClose(false); openSub(n, ''); };
+  $('#mlNew').onclick = () => {
+    const b = mBig; mCloseBig(); if (!b || !mReady.length) { mFill(); return; }
+    if (mN) { mPut(b.cell, mTake()); mLockFor(); } else dynTap(b.x);
+    mFill();
+  };
+  $('#mlDel').onclick = () => {
+    const b = mBig, i = curSetIdx(); if (!b || i < 0) return;
+    const a = sets(), n = b.x.sub.toLowerCase(), subs = a[i].subs.filter((v) => v.toLowerCase() !== n);
+    if (!subs.length) return;
+    a[i].subs = subs; setsSave(a);
+    sub = subs.join('+'); history.replaceState(history.state, '', urlFor());
+    posts = posts.filter((p) => p.subreddit.toLowerCase() !== n); mStale = true;
+    tok++; busy = false; after = null; done = false;
+    mReady = mReady.filter((r) => r.sub.toLowerCase() !== n); mItems = mItems.filter((r) => r.sub.toLowerCase() !== n);
+    if (mN) { [...mG.children].forEach((c) => { if (c._x && c._x.sub.toLowerCase() === n) { c._x = null; [...c.querySelectorAll('img')].forEach((o) => o.remove()); } }); mNeed = true; }
+    else dynLayout();
+    mCloseBig(); mFill();
+  };
   function mUi() {
     $('#mN').replaceChildren(...[[4, '4 Felder'], [6, '6 Felder'], [0, 'Dynamisch']].map(([n, l]) => { const b = el('button', 'chip' + (mN === n ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { mN = n; store.set('rd-mn', n); mUi(); mBuild(); mTick(); }; return b; }));
     $('#mS').hidden = !!mN; $('#mS').replaceChildren(...[[160, 'Klein'], [260, 'Mittel'], [400, 'Groß']].map(([n, l]) => { const b = el('button', 'chip' + (mSize === n ? ' on' : ''), l); b.type = 'button'; b.onclick = () => { mSize = n; store.set('rd-md', n); mUi(); dynLayout(); }; return b; }));
@@ -634,13 +681,14 @@
   }
   addEventListener('resize', () => { if (!mo.hidden && !mN) dynLayout(); });
   function mClose(back = true) {
-    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; mGen++; mReady = []; mG.replaceChildren(); mItems = []; document.body.style.overflow = '';
+    if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; ml.hidden = true; mGen++; mReady = []; mG.replaceChildren(); mItems = []; document.body.style.overflow = '';
+    if (mStale) { mStale = false; grid.replaceChildren(); posts.forEach(tile); stateEl.replaceChildren(); if (!done) more(); }
     if (back && history.state && history.state.m) history.back();
   }
   $('#mosBtn').onclick = mOpen; $('#mX').onclick = () => mClose();
   $('#mFit').onclick = () => { mFit = !mFit; store.set('rd-mfit', mFit ? '1' : '0'); [...mG.children].forEach((c) => c.classList.toggle('fit', mFit)); mUi(); };
   $('#mP').onclick = () => { mPaused = !mPaused; mUi(); };
-  addEventListener('keydown', (e) => { if (mo.hidden) return; if (e.key === 'Escape') mClose(); else if (e.key === ' ') { e.preventDefault(); $('#mP').click(); } });
+  addEventListener('keydown', (e) => { if (mo.hidden) return; if (e.key === 'Escape') { if (!ml.hidden) mCloseBig(); else mClose(); } else if (e.key === ' ') { e.preventDefault(); $('#mP').click(); } });
 
   function fromUrl() {
     const p = new URLSearchParams(location.search);
