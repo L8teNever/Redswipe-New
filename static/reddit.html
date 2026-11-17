@@ -423,8 +423,12 @@
 
   // ---------- Eigene Feeds (mehrere Subreddits zusammen) ----------
   const DEF_SET = { name: 'Mein Standard-Feed', subs: ['u/Brilliant-Nothing684/m/redswipe'], fixed: true };
-  const SEED = [{ name: 'Bikini & Dekolleté', subs: ['bikinis', 'bikinibodies', 'cleavage', 'SFWRedheads', 'SFWNextDoorGirls', 'lingerie'] }];
-  const sets = () => { try { const v = store.get('rd-sets', null); return v === null ? SEED : (JSON.parse(v) || []); } catch { return []; } };
+  const SEED = [{ name: 'Bikini & Dekolleté', subs: ['bikinis', 'bikinibodies', 'SFWRedheads', 'lingerie', 'gentlemanboners', 'PrettyGirls', 'tightdresses', 'BeautifulFemales'] }];
+  const OLD_SEED = 'bikinis,bikinibodies,cleavage,SFWRedheads,SFWNextDoorGirls,lingerie';
+  const sets = () => { try { const v = store.get('rd-sets', null); if (v === null) return SEED; const l = JSON.parse(v) || [];
+    // alte, unveränderte Vorgabe auf die neue Liste umstellen
+    if (l.some((f) => f.subs && f.subs.join(',') === OLD_SEED)) { l.forEach((f) => { if (f.subs && f.subs.join(',') === OLD_SEED) f.subs = [...SEED[0].subs]; }); store.set('rd-sets', JSON.stringify(l)); }
+    return l; } catch { return []; } };
   const setsSave = (a) => store.set('rd-sets', JSON.stringify(a));
   function renderHid() {
     const h = hidSubs(), box = $('#hid'); box.replaceChildren(); if (!h.length) return;
