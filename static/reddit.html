@@ -405,7 +405,7 @@
     if (vw.hidden) return;
     vw.hidden = true; document.body.style.overflow = ''; io.disconnect();
     const cur = Math.round(vs.scrollTop / (vs.clientHeight || 1)); vs.replaceChildren();
-    if (back && history.state && history.state.v) history.back();
+    if (back && history.state && history.state.v) { mSkipPop = true; history.back(); }
     const tl = grid.children[cur]; if (tl) tl.scrollIntoView({ block: 'center' });
   }
   const step = (d) => vs.scrollBy({ top: d * vs.clientHeight, behavior: 'smooth' });
@@ -696,7 +696,7 @@
   function mClose(back = true) {
     if (mo.hidden) return; clearInterval(mTimer); mo.hidden = true; ml.hidden = true; mGen++; mReady = []; mG.replaceChildren(); mItems = []; document.body.style.overflow = '';
     if (mStale) { mStale = false; grid.replaceChildren(); posts.forEach(tile); stateEl.replaceChildren(); if (!done) more(); }
-    if (back && history.state && history.state.m) history.back();
+    if (back && history.state && history.state.m) { mSkipPop = true; history.back(); }
   }
   $('#mosBtn').onclick = mOpen; $('#mX').onclick = () => mClose();
   $('#mFit').onclick = () => { mFit = !mFit; store.set('rd-mfit', mFit ? '1' : '0'); [...mG.children].forEach((c) => c.classList.toggle('fit', mFit)); mUi(); };
