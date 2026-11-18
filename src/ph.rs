@@ -2,7 +2,13 @@
 //! auf dem Server, Videos als HLS-Stream über den Server durchgereicht (gleiche IP wie der Browser,
 //! weil die Stream-Adressen an die IP gebunden sind).
 
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    env,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use axum::{
     Json,
@@ -12,6 +18,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use reqwest::Url;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -38,7 +45,7 @@ pub struct ListQuery {
 pub struct ActBody {
     key: String,
     action: String,
-    /// Kachel des Videos (nur PimpBunny, falls der Server sie nicht mehr im Zwischenspeicher hat)
+    /// Kachel des Videos (für lokale Favoriten, falls der Server sie nicht mehr im Zwischenspeicher hat)
     meta: Option<Value>,
 }
 
@@ -151,13 +158,6 @@ if(!slug||seen.has(slug))continue;seen.add(slug);const img=li.querySelector('img
 out.push({slug,id:(href.match(/[?&]c=(\d+)/)||[])[1]||'',name,img:img&&(img.getAttribute('data-image')||img.getAttribute('src'))||'',count:((li.querySelector('var')||{}).textContent||'').trim()});}
 return {ok:true,items:out}})()"#;
 
-/// Eigener Favoriten-Link aus dem Benutzermenü (nur eingeloggt vorhanden).
-const ME_JS: &str = r#"(()=>{const a=[...document.querySelectorAll('a[href*="/users/"]')].map(a=>a.getAttribute('href')||'')
-.map(h=>{try{return new URL(h,location.href).pathname}catch{return ''}});
-const fav=a.find(h=>/^\/users\/[^/]+\/videos\/favorites\/?$/.test(h));
-const login=!document.querySelector('.js_videoSubscribeButton.loggedOut, .loggedOut .js_gtm-subscribeEvent')&&!!(document.querySelector('a[href*="/logout"]')||fav);
-return {ok:true,fav:fav||'',login}})()"#;
-
 /// Zustand (und optional eine Aktion) auf der Videoseite im eingeloggten Browser.
 /// `__ACT__` wird durch "", "up", "down", "fav" oder "sub" ersetzt.
 const STATE_JS: &str = r#"(async()=>{const act='__ACT__';const $=s=>document.querySelector(s);
@@ -261,6 +261,7 @@ async fn search_user(url: &str, q: &str, page: u32, path: &str, cats: &[(&str, &
             words.iter().all(|w| t.contains(w.as_str())) && keep.as_ref().is_none_or(|k| it["key"].as_str().is_some_and(|x| k.contains(x)))
         })
         .collect();
+    cache_items(&items);
     Json(json!({ "items": items, "page": page, "name": v["name"].clone(), "avatar": v["avatar"].clone(), "stats": v["stats"].clone(), "searched": total, "partial": partial })).into_response()
 }
 
@@ -304,11 +305,27 @@ pub async fn cats() -> Response {
 }
 
 pub async fn list(Query(p): Query<ListQuery>) -> Response {
+    let page = p.page.unwrap_or(1).clamp(1, 200);
+    let src = p.src.as_deref().unwrap_or("ph");
+    if p.kind.as_deref() == Some("favs") {
+        let items = match src {
+            "pb" => crate::pb::favs(page),
+            "all" | "both" => match (favs(page), crate::pb::favs(page)) {
+                (Ok(a), Ok(b)) => Ok(interleave(a, b)),
+                (Ok(a), Err(_)) => Ok(a),
+                (Err(_), Ok(b)) => Ok(b),
+                (Err(e), Err(_)) => Err(e),
+            },
+            _ => favs(page),
+        };
+        return match items {
+            Ok(items) => Json(json!({ "items": items, "page": page, "login": true })).into_response(),
+            Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
+        };
+    }
     if !browser::configured() {
         return err(StatusCode::SERVICE_UNAVAILABLE, "Der Browser auf dem Server ist nicht eingerichtet.");
     }
-    let page = p.page.unwrap_or(1).clamp(1, 200);
-    let src = p.src.as_deref().unwrap_or("ph");
     // Creator-Seite bei PimpBunny
     if p.kind.as_deref() == Some("user") && p.path.as_deref().is_some_and(|x| x.starts_with("/pb/")) {
         let path = p.path.as_deref().unwrap_or("");
@@ -329,13 +346,8 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             Err(e) => browser_failed(e),
         };
     }
-    if src == "pb" && matches!(p.kind.as_deref(), Some("favs" | "subs")) {
-        let r = if p.kind.as_deref() == Some("favs") {
-            crate::pb::favs(page).map_err(browser::BrowserError::Failed)
-        } else {
-            crate::pb::subs_feed(page).await
-        };
-        return match r {
+    if src == "pb" && p.kind.as_deref() == Some("subs") {
+        return match crate::pb::subs_feed(page).await {
             Ok(items) => Json(json!({ "items": items, "page": page, "login": true })).into_response(),
             Err(e) => browser_failed(e),
         };
@@ -391,15 +403,6 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             }
             format!("{SITE}/video/search?search={}&page={page}{os}", urlencoding::encode(q))
         }
-        "favs" => match my_favs().await {
-            Ok(Some(path)) => format!("{SITE}{path}?page={page}"),
-            Ok(None) if is_both => {
-                let items = crate::pb::favs(page).unwrap_or_default();
-                return Json(json!({ "items": items, "login": !items.is_empty(), "page": page })).into_response();
-            }
-            Ok(None) => return Json(json!({ "items": [], "login": false, "page": page })).into_response(),
-            Err(e) => return browser_failed(e),
-        },
         "user" => {
             let path = p.path.clone().unwrap_or_default();
             if !valid_path(&path) {
@@ -420,39 +423,24 @@ pub async fn list(Query(p): Query<ListQuery>) -> Response {
             // Ohne Login leitet Pornhub die Abo-Seite auf eine andere Liste um: dann nichts zeigen
             let landed = v["url"].as_str().unwrap_or("");
             let lost = subs && !landed.contains("subscriptions");
-            // Hinter der letzten Favoriten-Seite nichts nachladen (Pornhub leitet um oder zeigt Empfehlungen)
-            let cur = v["curPage"].as_u64().unwrap_or(1);
-            let last = v["lastPage"].as_u64().unwrap_or(0);
-            let past = p.kind.as_deref() == Some("favs") && page > 1 && (cur < page as u64 || (last > 0 && page as u64 > last));
-            let lost = lost || past;
             let mut ph_items = if lost { vec![] } else { v["items"].as_array().cloned().unwrap_or_default() };
             for it in &mut ph_items {
                 if let Some(obj) = it.as_object_mut() {
                     obj.insert("src".to_string(), json!("ph"));
                 }
             }
+            cache_items(&ph_items);
             let kind_s = p.kind.as_deref().unwrap_or("home");
             let mut pb_found = false;
-            if is_both && matches!(kind_s, "home" | "search" | "favs" | "subs") {
-                let pb_res = match kind_s {
-                    "favs" => crate::pb::favs(page).map_err(browser::BrowserError::Failed),
-                    "subs" => crate::pb::subs_feed(page).await,
-                    _ => crate::pb::list(page, p.q.as_deref()).await,
+            if is_both && matches!(kind_s, "home" | "search" | "subs") {
+                let pb_res = if kind_s == "subs" {
+                    crate::pb::subs_feed(page).await
+                } else {
+                    crate::pb::list(page, p.q.as_deref()).await
                 };
                 if let Ok(pb_items) = pb_res {
                     pb_found = !pb_items.is_empty();
-                    let mut combined = Vec::with_capacity(ph_items.len() + pb_items.len());
-                    let mut ph_iter = ph_items.into_iter();
-                    let mut pb_iter = pb_items.into_iter();
-                    loop {
-                        match (ph_iter.next(), pb_iter.next()) {
-                            (Some(a), Some(b)) => { combined.push(a); combined.push(b); }
-                            (Some(a), None) => { combined.push(a); combined.extend(ph_iter); break; }
-                            (None, Some(b)) => { combined.push(b); combined.extend(pb_iter); break; }
-                            (None, None) => break,
-                        }
-                    }
-                    ph_items = combined;
+                    ph_items = interleave(ph_items, pb_items);
                 }
             }
             Json(json!({
@@ -541,10 +529,13 @@ pub async fn video(Query(p): Query<VideoQuery>) -> Response {
     }
     let uploader = uploader(&html);
     let duration = f["video_duration"].as_u64().or_else(|| f["video_duration"].as_str().and_then(|d| d.parse().ok())).unwrap_or(0);
+    let title = f["video_title"].as_str().unwrap_or("");
+    let thumb = f["image_url"].as_str().unwrap_or("");
+    cache_video_summary(&key, title, duration, thumb, uploader.as_ref());
     Json(json!({
-        "title": f["video_title"].as_str().unwrap_or(""),
+        "title": title,
         "duration": duration,
-        "thumb": f["image_url"].as_str().unwrap_or(""),
+        "thumb": thumb,
         "uploader": uploader.map(|(path, name)| json!({ "path": path, "name": name })),
         "likes": rating(&html, "votesUp"),
         "dislikes": rating(&html, "votesDown"),
@@ -593,21 +584,7 @@ fn rating(html: &str, class: &str) -> u64 {
     t.split('"').next().and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
-/// Pfad der eigenen Favoriten (`/users/<ich>/videos/favorites`), einmal gefunden wird er gemerkt.
-async fn my_favs() -> Result<Option<String>, browser::BrowserError> {
-    static FAV: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-    if let Some(p) = FAV.lock().unwrap().clone() {
-        return Ok(Some(p));
-    }
-    let v = browser::eval_in_page(&format!("{SITE}/"), ME_JS).await?;
-    let fav = v["fav"].as_str().filter(|f| !f.is_empty()).map(str::to_string);
-    if let Some(f) = &fav {
-        *FAV.lock().unwrap() = Some(f.clone());
-    }
-    Ok(fav)
-}
-
-/// Like-/Favoriten-/Abo-Zustand des eingeloggten Kontos für ein Video.
+/// Like-/Favoriten-/Abo-Zustand für ein Video (`fav` kommt aus der eigenen Datenbank).
 pub async fn state(Query(p): Query<VideoQuery>) -> Response {
     let Some(key) = p.key.filter(|k| valid_key(k)) else {
         return err(StatusCode::BAD_REQUEST, "Ungültiger Video-Schlüssel");
@@ -621,10 +598,21 @@ pub async fn state(Query(p): Query<VideoQuery>) -> Response {
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
         };
     }
-    run_state(&key, "").await
+    let fav = is_fav(&key);
+    if !browser::configured() {
+        return Json(json!({ "ok": true, "fav": fav })).into_response();
+    }
+    let url = format!("{SITE}/view_video.php?viewkey={key}");
+    match browser::eval_in_page(&url, &STATE_JS.replace("__ACT__", "")).await {
+        Ok(mut v) if v["ok"].as_bool() == Some(true) => {
+            v["fav"] = json!(fav);
+            Json(v).into_response()
+        }
+        _ => Json(json!({ "ok": true, "fav": fav })).into_response(),
+    }
 }
 
-/// Liken, Disliken, Favorit oder Abo umschalten: klickt den echten Knopf im eingeloggten Browser.
+/// Liken, Disliken, Favorit oder Abo umschalten: Favoriten lokal in SQLite, Rest im eingeloggten Browser.
 pub async fn act(Json(b): Json<ActBody>) -> Response {
     if !valid_key(&b.key) || !matches!(b.action.as_str(), "up" | "down" | "fav" | "sub") {
         return err(StatusCode::BAD_REQUEST, "Ungültige Aktion");
@@ -641,6 +629,12 @@ pub async fn act(Json(b): Json<ActBody>) -> Response {
             Err(e) => err(StatusCode::BAD_REQUEST, e),
         };
     }
+    if b.action == "fav" {
+        return match toggle_fav(&b.key, b.meta.as_ref()) {
+            Ok(fav) => Json(json!({ "ok": true, "fav": fav })).into_response(),
+            Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
+        };
+    }
     run_state(&b.key, &b.action).await
 }
 
@@ -650,7 +644,10 @@ async fn run_state(key: &str, action: &str) -> Response {
     }
     let url = format!("{SITE}/view_video.php?viewkey={key}");
     match browser::eval_in_page(&url, &STATE_JS.replace("__ACT__", action)).await {
-        Ok(v) if v["ok"].as_bool() == Some(true) => Json(v).into_response(),
+        Ok(mut v) if v["ok"].as_bool() == Some(true) => {
+            v["fav"] = json!(is_fav(key));
+            Json(v).into_response()
+        }
         Ok(v) => err(
             if v["login"].as_bool() == Some(false) { StatusCode::UNAUTHORIZED } else { StatusCode::BAD_GATEWAY },
             v["error"].as_str().unwrap_or("Seite nicht lesbar").to_string(),
@@ -805,3 +802,205 @@ pub async fn media(headers: HeaderMap, Query(q): Query<MediaQuery>) -> Response 
     b.body(Body::from_stream(resp.bytes_stream()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
+
+// ---------- Eigene Favoriten (lokal in SQLite statt auf Pornhub) ----------
+
+static ITEMS: Mutex<Option<HashMap<String, Value>>> = Mutex::new(None);
+
+fn cache_items(items: &[Value]) {
+    let Ok(mut g) = ITEMS.lock() else { return };
+    let m = g.get_or_insert_with(HashMap::new);
+    if m.len() > 2000 {
+        m.clear();
+    }
+    for it in items {
+        if let Some(k) = it["key"].as_str().filter(|s| !s.is_empty()) {
+            m.insert(k.to_string(), it.clone());
+        }
+    }
+}
+
+fn mmss(s: u64) -> String {
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
+}
+
+fn cache_video_summary(key: &str, title: &str, duration: u64, thumb: &str, uploader: Option<&(String, String)>) {
+    let Ok(mut g) = ITEMS.lock() else { return };
+    let m = g.get_or_insert_with(HashMap::new);
+    if m.len() > 2000 {
+        m.clear();
+    }
+    let mut entry = m.get(key).cloned().unwrap_or_else(|| json!({ "key": key, "src": "ph" }));
+    if let Some(o) = entry.as_object_mut() {
+        o.entry("key".to_string()).or_insert_with(|| json!(key));
+        o.entry("src".to_string()).or_insert_with(|| json!("ph"));
+        if !title.is_empty() {
+            o.insert("title".into(), json!(title));
+        }
+        if !thumb.is_empty() && o.get("thumb").and_then(Value::as_str).unwrap_or("").is_empty() {
+            o.insert("thumb".into(), json!(thumb));
+        }
+        if duration > 0 && o.get("duration").and_then(Value::as_str).unwrap_or("").is_empty() {
+            o.insert("duration".into(), json!(mmss(duration)));
+        }
+        if let Some((path, name)) = uploader {
+            if !name.is_empty() && o.get("uploader").and_then(Value::as_str).unwrap_or("").is_empty() {
+                o.insert("uploader".into(), json!(name));
+            }
+            if !path.is_empty() && o.get("upath").and_then(Value::as_str).unwrap_or("").is_empty() {
+                o.insert("upath".into(), json!(path));
+            }
+        }
+    }
+    m.insert(key.to_string(), entry);
+}
+
+fn cached_item(key: &str) -> Option<Value> {
+    ITEMS.lock().ok()?.as_ref()?.get(key).cloned()
+}
+
+fn interleave(a: Vec<Value>, b: Vec<Value>) -> Vec<Value> {
+    let mut combined = Vec::with_capacity(a.len() + b.len());
+    let mut ai = a.into_iter();
+    let mut bi = b.into_iter();
+    loop {
+        match (ai.next(), bi.next()) {
+            (Some(x), Some(y)) => {
+                combined.push(x);
+                combined.push(y);
+            }
+            (Some(x), None) => {
+                combined.push(x);
+                combined.extend(ai);
+                break;
+            }
+            (None, Some(y)) => {
+                combined.push(y);
+                combined.extend(bi);
+                break;
+            }
+            (None, None) => break,
+        }
+    }
+    combined
+}
+
+fn init_fav_db(c: &Connection) -> Result<(), String> {
+    c.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE IF NOT EXISTS favs (key TEXT PRIMARY KEY, item TEXT NOT NULL, ts INTEGER NOT NULL);",
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn fav_db() -> Result<&'static Mutex<Connection>, String> {
+    static DB: OnceLock<Result<Mutex<Connection>, String>> = OnceLock::new();
+    DB.get_or_init(|| {
+        let path = PathBuf::from(env::var("VPN_DIR").unwrap_or_else(|_| "/vpn".into())).join("ph.sqlite");
+        let c = Connection::open(path).map_err(|e| e.to_string())?;
+        init_fav_db(&c)?;
+        Ok(Mutex::new(c))
+    })
+    .as_ref()
+    .map_err(|e| e.clone())
+}
+
+fn now_ts() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+fn is_fav_in(c: &Connection, key: &str) -> bool {
+    c.query_row("SELECT 1 FROM favs WHERE key = ?1", [key], |_| Ok(true))
+        .optional()
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+fn is_fav(key: &str) -> bool {
+    let Ok(db) = fav_db() else { return false };
+    let Ok(c) = db.lock() else { return false };
+    is_fav_in(&c, key)
+}
+
+fn build_fav_item(key: &str, cached: Option<Value>, meta: Option<&Value>) -> Value {
+    let mut item = cached.filter(Value::is_object).unwrap_or_else(|| json!({}));
+    if let (Some(dst), Some(src)) = (item.as_object_mut(), meta.and_then(Value::as_object)) {
+        for (k, v) in src {
+            if !v.is_null() && v.as_str() != Some("") {
+                dst.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    if let Some(o) = item.as_object_mut() {
+        o.insert("key".into(), json!(key));
+        o.insert("src".into(), json!("ph"));
+        if o.get("title").and_then(Value::as_str).unwrap_or("").is_empty() {
+            o.insert("title".into(), json!(key));
+        }
+    }
+    item
+}
+
+fn toggle_fav_in(c: &Connection, key: &str, cached: Option<Value>, meta: Option<&Value>, ts: i64) -> Result<bool, String> {
+    let n = c.execute("DELETE FROM favs WHERE key = ?1", [key]).map_err(|e| e.to_string())?;
+    if n > 0 {
+        return Ok(false);
+    }
+    let item = build_fav_item(key, cached, meta);
+    c.execute("INSERT INTO favs (key, item, ts) VALUES (?1, ?2, ?3)", params![key, item.to_string(), ts])
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn toggle_fav(key: &str, meta: Option<&Value>) -> Result<bool, String> {
+    let c = fav_db()?.lock().map_err(|e| e.to_string())?;
+    toggle_fav_in(&c, key, cached_item(key), meta, now_ts())
+}
+
+fn favs_in(c: &Connection, page: u32) -> Result<Vec<Value>, String> {
+    let mut st = c.prepare("SELECT item FROM favs ORDER BY ts DESC, rowid DESC LIMIT 32 OFFSET ?1").map_err(|e| e.to_string())?;
+    let rows = st.query_map([(page.max(1) as i64 - 1) * 32], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    Ok(rows.filter_map(|r| r.ok()).filter_map(|s| serde_json::from_str::<Value>(&s).ok()).collect())
+}
+
+fn favs(page: u32) -> Result<Vec<Value>, String> {
+    let c = fav_db()?.lock().map_err(|e| e.to_string())?;
+    favs_in(&c, page)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ph_favs_toggle_and_list() {
+        let c = Connection::open_in_memory().unwrap();
+        init_fav_db(&c).unwrap();
+        assert!(!is_fav_in(&c, "ph123"));
+
+        let meta = json!({ "title": "Test Video", "thumb": "https://ei.phncdn.com/a.jpg", "duration": "4:20" });
+        assert!(toggle_fav_in(&c, "ph123", None, Some(&meta), 100).unwrap());
+        assert!(is_fav_in(&c, "ph123"));
+
+        let cached = Some(json!({ "key": "ph456", "title": "Second", "uploader": "Creator" }));
+        assert!(toggle_fav_in(&c, "ph456", cached, None, 200).unwrap());
+
+        let list = favs_in(&c, 1).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0]["key"], "ph456");
+        assert_eq!(list[0]["src"], "ph");
+        assert_eq!(list[1]["key"], "ph123");
+        assert_eq!(list[1]["title"], "Test Video");
+
+        // Erneutes Umschalten entfernt aus Favoriten
+        assert!(!toggle_fav_in(&c, "ph123", None, None, 300).unwrap());
+        assert!(!is_fav_in(&c, "ph123"));
+        assert_eq!(favs_in(&c, 1).unwrap().len(), 1);
+    }
+}
+

@@ -411,6 +411,7 @@
     main { padding: 10px 10px calc(78px + env(safe-area-inset-bottom)); }
     .cmenu-btn { height: 36px; padding: 0 10px; font-size: 13px; }
     #ttFab { bottom: calc(74px + env(safe-area-inset-bottom)); right: calc(14px + env(safe-area-inset-right)); height: 46px; padding: 0 16px 0 12px; font-size: 14px; }
+    body.sh .shbar { flex: 1; min-width: 0; justify-content: flex-end; }
     #player .acts { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 6px; padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); }
     #player .acts::-webkit-scrollbar { display: none; }
     #player .acts .sp { display: none; }
@@ -420,6 +421,8 @@
   }
   @media (max-width: 640px) {
     .grid { grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 14px 10px; }
+    .shsrc small { display: none; }
+    .shsrc { max-width: 42vw; }
     .mybar { padding: 10px 12px; gap: 8px; }
     .mybar-search { max-width: none; flex: 1 1 100%; order: 3; }
     .uhead { padding: 12px; gap: 10px; }
@@ -428,6 +431,11 @@
     .cp, .pk, .mbox { width: 100%; max-height: 88dvh; border-radius: 22px 22px 0 0; border-bottom: 0; animation: sheetUp .22s var(--ease); }
     .pkv { border-radius: 22px 22px 0 0; }
     @keyframes sheetUp { from { transform: translateY(28px); opacity: 0; } }
+  }
+  @media (max-width: 520px) {
+    body.sh header .brand { display: none; }
+    .shsrc { max-width: none; flex: 0 1 auto; min-width: 0; }
+    .shgrp .ib { width: 31px; height: 31px; }
   }
   .mybar { padding: 12px 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .mybar .myst { flex: 1; min-width: 200px; color: var(--tx-2); font-size: 13.5px; }
@@ -465,9 +473,29 @@
     <button class="tab" type="button" data-k="my"><svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg><span class="tl">Meine</span></button>
     <button class="tab" type="button" data-k="offline"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg><span class="tl">Offline</span></button>
   </nav>
+  <span class="hdr-sp"></span>
+  <div class="hdr-act">
+    <button class="ib" id="mSearchBtn" type="button" data-k="search" aria-label="Suche" title="Suche"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
+    <button class="ib" type="button" data-k="my" aria-label="Meine Videos" title="Meine Videos"><svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg></button>
+    <button class="ib" type="button" data-k="offline" aria-label="Offline-Videos" title="Offline"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg><span class="hdr-badge" id="offBadge" hidden></span></button>
+  </div>
   <div class="shbar" id="shBar"><button class="shsrc" type="button" data-t="srcBtn" title="Quelle wählen"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><span id="shLbl">Mein Feed</span><small id="shSub"></small></button><div class="shgrp"><button class="ib" type="button" data-t="scanListBtn" title="Gescannte Videos" aria-label="Gescannte Videos"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button><button class="ib" type="button" data-t="holoBtn" title="Hologramm" aria-label="Hologramm"><svg viewBox="0 0 24 24"><path d="M12 2L2 12l10 10 10-10L12 2zm0 4.83L17.17 12 12 17.17 6.83 12 12 6.83z"/></svg></button><button class="ib" type="button" data-t="followSheetBtn" title="Gefolgte Creator" aria-label="Gefolgte Creator"><svg viewBox="0 0 24 24"><path d="M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z"/></svg></button><button class="ib" type="button" data-t="moreBtn" title="Weitere Werkzeuge" aria-label="Weitere Werkzeuge"><svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg></button><button class="ib" type="button" data-t="setBtn" title="Einstellungen" aria-label="Einstellungen"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button></div></div>
-  <form class="search" hidden><input id="q" type="search" placeholder="Suchen …" enterkeyhint=\"search\" autocomplete=\"off\"></form>
+  <form class="search" hidden>
+    <button class="ib" id="mSearchBack" type="button" aria-label="Suche schließen"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+      <input id="q" type="search" placeholder="Suchen …" enterkeyhint="search" autocomplete="off">
+      <button class="search-clr" id="qClr" type="button" aria-label="Suche leeren" hidden><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+  </form>
 </header>
+<nav id="bnav" aria-label="Navigation">
+  <button class="bn" type="button" data-k="home"><span class="bni"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></span><span>Startseite</span></button>
+  <button class="bn" type="button" data-k="subs"><span class="bni"><svg viewBox="0 0 24 24"><path d="M9 17l3-2.94A9.3 9.3 0 0 0 11 14c-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41-6.53 6.59z"/></svg></span><span>Abos</span></button>
+  <button class="bn" type="button" data-k="favs"><span class="bni"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span><span>Favoriten</span></button>
+  <button class="bn" type="button" data-k="shorts"><span class="bni"><svg viewBox="0 0 24 24"><path d="M17.77 10.32l-1.2-.5L18 9.06a3.74 3.74 0 0 0-3.5-6.62L6 6.94a3.74 3.74 0 0 0 .23 6.74l1.2.49L6 14.93a3.75 3.75 0 0 0 3.5 6.63l8.5-4.5a3.74 3.74 0 0 0-.23-6.74zM10 14.65V9.35L15 12l-5 2.65z"/></svg></span><span>Shorts</span></button>
+  <a class="bn" href="/reddit"><span class="bni"><svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></span><span>Reddit</span></a>
+</nav>
 <iframe id="shorts" hidden title="Shorts" allow="autoplay; fullscreen; xr-spatial-tracking; clipboard-write" allowfullscreen></iframe>
 <main>
 <div id="myBar" class="mybar" hidden><input id="myFile" type="file" accept="video/*,.mkv" multiple hidden><button class="pill" id="myPick" type="button"><svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/></svg><span>Video hochladen</span></button><div class="myst" id="myState">Lade Videos vom Handy oder PC hoch. Sie liegen auf dem Server und laufen wie die anderen.</div><div class="myprog" id="myProg" hidden><i></i></div></div><div class="uhead" id="uHead" hidden><div class="ava" id="uAva"></div><div class="un"><h2 id="uName"></h2><small id="uInfo">Alle Videos</small><div class="ustats" id="uStats"></div></div><button class="pill" type="button" id="uSub" hidden><svg viewBox="0 0 24 24"><path class="i-off" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/><path class="i-on" d="M9 17l3-2.94c-.39-.04-.68-.06-1-.06-2.67 0-8 1.34-8 4v2h9l-3-3zm2-5c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4m4.47 8.5L12 17l1.4-1.41 2.07 2.08 5.13-5.17 1.4 1.41z"/></svg><span>Abonnieren</span></button><form class="usearch" id="uForm"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg><input id="uQ" type="search" placeholder="In diesen Videos suchen …" enterkeyhint="search" autocomplete="off"></form></div><div class="sorts" id="sorts" hidden></div><div class="grid" id="grid"></div><div id="foot"></div></main>
@@ -589,10 +617,11 @@
   });
 
   function updateSrcUi() {
+    const eff = kind === 'pb' ? 'pb' : srcFilter;
     const names = { all: 'Alle', ph: 'Pornhub', pb: 'PimpBunny' };
-    const lbl = $('#srcLbl'); if (lbl) lbl.textContent = names[srcFilter] || 'Alle';
+    const lbl = $('#srcLbl'); if (lbl) lbl.textContent = names[eff] || 'Alle';
     document.querySelectorAll('#srcPop .cmenu-item').forEach((item) => {
-      const isIt = item.dataset.src === srcFilter;
+      const isIt = item.dataset.src === eff;
       item.classList.toggle('on', isIt);
       const chk = item.querySelector('.cmenu-check');
       if (chk) chk.textContent = isIt ? '✓' : '';
@@ -605,7 +634,7 @@
       $('#srcPop').hidden = true;
       $('#srcBtn').setAttribute('aria-expanded', 'false');
       const val = item.dataset.src || 'all';
-      if (val === srcFilter) return;
+      if (val === srcFilter && kind !== 'pb') return;
       srcFilter = val;
       store.set('ph-src', val);
       updateSrcUi();
@@ -661,7 +690,7 @@
       if (!items.length) {
         done = true;
         if (!grid.children.length) {
-          if ((kind === 'subs' || kind === 'favs') && !d.login) state('Du bist im Server-Browser nicht bei Pornhub eingeloggt.<br>Melde dich einmal auf <a href="https://redswipe-login.kulbarts.com" target="_blank" rel="noopener" style="color:var(--acc)">redswipe-login.kulbarts.com</a> bei pornhub.com an.');
+          if (kind === 'subs' && !d.login) state('Du bist im Server-Browser nicht bei Pornhub eingeloggt.<br>Melde dich einmal auf <a href="https://redswipe-login.kulbarts.com" target="_blank" rel="noopener" style="color:var(--acc)">redswipe-login.kulbarts.com</a> bei pornhub.com an.');
           else state({ subs: 'Keine Videos von deinen Abos gefunden.', favs: 'Du hast noch keine Favoriten.', user: (uq || userCats.length) ? 'Keine passenden Videos gefunden.' : 'Dieser Uploader hat keine öffentlichen Videos.' }[kind] || 'Keine Videos gefunden.');
         }
       }
@@ -704,8 +733,15 @@
   // ---------- Offline: Videos in der App speichern (Cache Storage + resumable IndexedDB) ----------
   const OFFC = 'ph-offline', offUrl = (k, ext) => '/__offline/' + k + '.' + ext;
   let offMeta = {}; try { offMeta = JSON.parse(store.get('ph-off', '{}')) || {}; } catch {}
-  const offSave = () => store.set('ph-off', JSON.stringify(offMeta));
   const offHas = (k) => !!(offMeta[k] && offMeta[k].done);
+  function offBadgeSync() {
+    const b = $('#offBadge'); if (!b) return;
+    const n = Object.keys(offMeta).filter(offHas).length;
+    b.textContent = n > 99 ? '99+' : String(n);
+    b.hidden = !n;
+  }
+  const offSave = () => { store.set('ph-off', JSON.stringify(offMeta)); offBadgeSync(); };
+  offBadgeSync();
   const offJobs = new Map(); // key -> { pct, got, ctl }
   const mb = (n) => n >= 1e9 ? (n / 1e9).toFixed(2).replace('.', ',') + ' GB' : Math.round(n / 1e6) + ' MB';
   const OFF_IC = '<svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM10 17l-3.5-3.5 1.41-1.41L10 14.17 15.18 9l1.41 1.41L10 17z"/></svg>';
@@ -1178,7 +1214,13 @@
 
   // ---------- Shorts (Redswipe eingebettet) ----------
   const shortsEl = $('#shorts');
-  function shortsPos() { const h = document.querySelector('header').offsetHeight; shortsEl.style.top = h + 'px'; shortsEl.style.height = (innerHeight - h) + 'px'; }
+  function shortsPos() {
+    const h = document.querySelector('header').offsetHeight;
+    const bn = $('#bnav');
+    const bh = bn && getComputedStyle(bn).display !== 'none' ? bn.offsetHeight : 0;
+    shortsEl.style.top = h + 'px';
+    shortsEl.style.height = Math.max(0, innerHeight - h - bh) + 'px';
+  }
   const SH_CSS = '#appbar{top:0!important;left:0!important;right:10px!important}#appbar>#srcBtn,#appbar>.group,#appbar>.spacer{display:none!important}#moreMenu{top:6px!important}';
   function shortsBind() {
     let d; try { d = shortsEl.contentDocument; } catch { return; }
@@ -1198,15 +1240,21 @@
   function shortsPause() { try { shortsEl.contentDocument.querySelectorAll('video, audio').forEach((v) => v.pause()); } catch {} }
   addEventListener('resize', () => { if (kind === 'shorts') shortsPos(); });
 
+  const isMob = () => matchMedia('(max-width: 820px)').matches;
+  function syncNavOn(k) {
+    document.querySelectorAll('.tab[data-k], .hdr-act .ib[data-k]').forEach((t) => t.classList.toggle('on', t.dataset.k === k));
+    document.querySelectorAll('#bnav .bn[data-k]').forEach((t) => t.classList.toggle('on', t.dataset.k === k || (k === 'pb' && t.dataset.k === 'home')));
+  }
   function setKind(k, push = true) {
-    { const sm = $('#srcMenu'); if (sm) sm.hidden = !(k === 'home' || k === 'search' || k === 'subs' || k === 'favs'); }
+    { const sm = $('#srcMenu'); if (sm) sm.hidden = !(k === 'home' || k === 'pb' || k === 'search' || k === 'subs' || k === 'favs'); }
     if (push && k !== 'user') syncUrl(k);
     if (kind === 'shorts' && k !== 'shorts') shortsPause();
     document.body.classList.toggle('sh', k === 'shorts');
+    document.body.classList.toggle('msearch', k === 'search' && isMob());
     shortsEl.hidden = k !== 'shorts';
     if (k === 'shorts') {
       kind = k; store.set('ph-kind', k); upath = ''; token++;
-      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.k === k));
+      syncNavOn(k); updateSrcUi();
       form.hidden = true; uHead.hidden = true; sortsEl.hidden = true;
       document.title = 'Redswipe · Shorts';
       if (!shortsEl.getAttribute('src')) shortsEl.src = '/redswipe';
@@ -1215,14 +1263,14 @@
       return;
     }
     kind = k; if (k !== 'user') { store.set('ph-kind', k); upath = ''; }
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.k === k));
+    syncNavOn(k); updateSrcUi();
     form.hidden = k !== 'search';
     uHead.hidden = k !== 'user';
     $('#myBar').hidden = k !== 'my';
     renderSorts();
     if (k !== 'user') document.title = 'Redswipe · Pornhub';
     reload();
-    if (k === 'search' && !q) qIn.focus();
+    if (k === 'search' && (!q || isMob())) qIn.focus();
   }
   function reload() { token++; busy = false; done = false; page = 0; seen.clear(); grid.replaceChildren(); scrollTo(0, 0); more(); }
 
@@ -1240,7 +1288,7 @@
   async function uSubInit(key) {
     if (uSubKey && !uSub.hidden) return;
     uSubKey = key; const my = upath;
-    try { const r = await fetch('/api/ph/state?key=' + encodeURIComponent(key)); const d = await r.json().catch(() => ({})); if (r.ok && my === upath) { uSubApply(d); uSub.hidden = false; } } catch {}
+    try { const r = await fetch('/api/ph/state?key=' + encodeURIComponent(key)); const d = await r.json().catch(() => ({})); if (r.ok && my === upath && d.sub != null) { uSubApply(d); uSub.hidden = false; } } catch {}
   }
   uSub.addEventListener('click', async () => {
     if (!uSubKey) return; const my = upath; uSub.classList.add('busy');
@@ -1268,12 +1316,30 @@
     setKind('user');
   }
   const homeKind = () => TABS.includes(store.get('ph-kind', 'home')) ? store.get('ph-kind', 'home') : 'home';
-  document.querySelectorAll('.tab[data-k]').forEach((t) => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab[data-k], .bn[data-k], .hdr-act .ib[data-k]').forEach((t) => t.addEventListener('click', () => {
     if (location.hash) history.replaceState(null, '', location.pathname);
+    if (t.dataset.k === 'search' && kind === 'search' && isMob()) {
+      document.body.classList.add('msearch'); qIn.focus(); return;
+    }
     setKind(t.dataset.k);
   }));
+  $('.brand').addEventListener('click', () => {
+    if (location.hash) history.replaceState(null, '', location.pathname);
+    setKind('home');
+  });
+  const qClr = $('#qClr'), mSearchBack = $('#mSearchBack');
+  if (mSearchBack) mSearchBack.addEventListener('click', () => {
+    document.body.classList.remove('msearch'); qIn.blur();
+    if (kind === 'search' && !q.trim()) setKind('home');
+  });
+  if (qClr) qClr.addEventListener('click', () => {
+    qIn.value = ''; qClr.hidden = true;
+    if (q) { q = ''; store.set('ph-q', ''); reload(); }
+    qIn.focus();
+  });
+  qIn.addEventListener('input', () => { if (qClr) qClr.hidden = !qIn.value; });
   form.addEventListener('submit', (e) => { e.preventDefault(); q = qIn.value.trim(); store.set('ph-q', q); qIn.blur(); reload(); });
-  qIn.value = q; if (smode === 'p') qIn.placeholder = 'Name suchen …';
+  qIn.value = q; if (qClr) qClr.hidden = !q; if (smode === 'p') qIn.placeholder = 'Name suchen …';
   addEventListener('scroll', () => { if (innerHeight + scrollY > document.documentElement.scrollHeight - 900) more(); }, { passive: true });
 
   // ---------- Player ----------
@@ -1284,10 +1350,10 @@
   function toast(msg) { const t = $('#pToast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 4000); }
   function applyState(s) {
     if (!s) return;
-    ['up', 'down', 'fav', 'sub'].forEach((a) => pills[a].classList.toggle('on', !!s[a]));
+    ['up', 'down', 'fav', 'sub'].forEach((a) => { if (s[a] != null) pills[a].classList.toggle('on', !!s[a]); });
     if (s.likes != null && s.likes) $('#pLikes').textContent = fmtN(s.likes);
     if (s.dislikes != null && s.dislikes) $('#pDislikes').textContent = fmtN(s.dislikes);
-    $('#pSubTxt').textContent = s.sub ? 'Abonniert' : 'Abonnieren';
+    if (s.sub != null) $('#pSubTxt').textContent = s.sub ? 'Abonniert' : 'Abonnieren';
   }
   async function loadState(key) {
     try {
@@ -1296,10 +1362,27 @@
       if (key === curKey && r.ok) applyState(d);
     } catch {}
   }
+  function metaFor(key) {
+    const it = itemByKey.get(key);
+    if (key === curKey && curInfo) {
+      return {
+        ...(it || {}),
+        key,
+        src: isPb(key) ? 'pb' : 'ph',
+        title: (it && it.title) || curInfo.title || '',
+        thumb: (it && it.thumb) || curInfo.thumb || '',
+        duration: (it && it.duration) || curInfo.duration || '',
+        uploader: (it && it.uploader) || curInfo.uploader || '',
+        upath: (it && it.upath) || curInfo.upath || '',
+      };
+    }
+    return it || null;
+  }
   async function act(key, action) {
-    const r = await fetch('/api/ph/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, action, meta: isPb(key) ? itemByKey.get(key) || null : null }) });
+    const r = await fetch('/api/ph/act', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, action, meta: metaFor(key) }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(r.status === 401 ? 'Nicht bei Pornhub eingeloggt. Melde dich einmal auf redswipe-login.kulbarts.com an.' : (d.error || 'HTTP ' + r.status));
+    if (hvStates.has(key)) hvStates.set(key, { ...hvStates.get(key), ...d });
     return d;
   }
   Object.values(pills).forEach((b) => b.addEventListener('click', async () => {
@@ -1364,7 +1447,7 @@
       e.stopPropagation();
       const it = hvIt; if (!it) return;
       b.classList.add('busy');
-      try { const d = await act(it.key, a); hvStates.set(it.key, d); if (hvIt === it) hvApply(d); }
+      try { const d = await act(it.key, a); const merged = { ...(hvStates.get(it.key) || {}), ...d }; hvStates.set(it.key, merged); if (hvIt === it) hvApply(merged); }
       catch (err) { if (hvIt === it) { const m = $('#hvMsg'); m.textContent = err.message; m.hidden = false; } }
       finally { b.classList.remove('busy'); }
     });
@@ -1377,9 +1460,15 @@
   });
   hvA.appendChild(hvProf);
   function hvApply(s) {
-    ['up', 'fav', 'sub'].forEach((a) => hvPills[a].classList.toggle('on', !!(s && s[a])));
-    hvPills.up.lastChild.textContent = s && s.likes ? fmtN(s.likes) : '';
-    hvPills.sub.lastChild.textContent = s && s.sub ? 'Abonniert' : 'Abonnieren';
+    if (!s) {
+      ['up', 'fav', 'sub'].forEach((a) => hvPills[a].classList.remove('on'));
+      hvPills.up.lastChild.textContent = '';
+      hvPills.sub.lastChild.textContent = 'Abonnieren';
+      return;
+    }
+    ['up', 'fav', 'sub'].forEach((a) => { if (s[a] != null) hvPills[a].classList.toggle('on', !!s[a]); });
+    if (s.likes != null) hvPills.up.lastChild.textContent = s.likes ? fmtN(s.likes) : '';
+    if (s.sub != null) hvPills.sub.lastChild.textContent = s.sub ? 'Abonniert' : 'Abonnieren';
   }
   function hovEnter(c, it) {
     clearTimeout(hvHideT);
